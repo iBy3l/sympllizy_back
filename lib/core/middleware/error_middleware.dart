@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import '../errors/base_exception.dart';
@@ -29,6 +30,6 @@ final ErrorHandler errorMiddleware = (Object error, StackTrace stack, HttpContex
   ctx.response
     ..statusCode = ex.statusCode
     ..headers.contentType = ContentType.json
-    ..write(body);
+    ..write(jsonEncode(body));
   await ctx.response.close();
 };

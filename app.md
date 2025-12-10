@@ -1,11 +1,18 @@
+iby3l@192 sympllizy_back % tree                    
+.
 ├── analysis_options.yaml
 ├── app.md
 ├── bin
-│   └── server.dart
+│   ├── server.dart
+│   └── test_jwt.dart
 ├── CHANGELOG.md
 ├── Dockerfile
 ├── lib
 │   ├── core
+│   │   ├── config
+│   │   │   ├── app_config.dart
+│   │   │   ├── config.dart
+│   │   │   └── environment.dart
 │   │   ├── core.dart
 │   │   ├── database
 │   │   │   ├── database_connection.dart
@@ -24,17 +31,32 @@
 │   │   ├── http
 │   │   │   ├── api_response.dart
 │   │   │   ├── context.dart
+│   │   │   ├── http_to_shelf.dart
 │   │   │   ├── http.dart
 │   │   │   ├── request_utils.dart
 │   │   │   ├── response_utils.dart
-│   │   │   └── router.dart
-│   │   └── middleware
-│   │       ├── auth_middleware.dart
-│   │       ├── cors_middleware.dart
-│   │       ├── error_middleware.dart
-│   │       ├── logging_middleware.dart
-│   │       ├── middleware.dart
-│   │       └── org_context_middleware.dart
+│   │   │   ├── router.dart
+│   │   │   └── shelf_to_http.dart
+│   │   ├── middleware
+│   │   │   ├── auth_middleware.dart
+│   │   │   ├── cors_middleware.dart
+│   │   │   ├── error_middleware.dart
+│   │   │   ├── logging_middleware.dart
+│   │   │   ├── middleware.dart
+│   │   │   └── org_context_middleware.dart
+│   │   ├── openapi
+│   │   │   ├── modules
+│   │   │   │   └── modules.dart
+│   │   │   ├── openapi.dart
+│   │   │   └── openapi.yaml
+│   │   ├── security
+│   │   │   ├── jwt_service.dart
+│   │   │   ├── password_hash.dart
+│   │   │   ├── security.dart
+│   │   │   └── token_pair.dart
+│   │   └── swagger
+│   │       ├── openapi_spec.dart
+│   │       └── swagger_handler.dart
 │   └── server
 │       └── server.dart
 ├── pubspec.lock
@@ -42,6 +64,63 @@
 ├── README.md
 └── test
     └── server_test.dart
+
+
+├── config
+app_config.dart:
+import 'package:sympllizy_back/core/config/environment.dart';
+
+import '../env/env.dart';
+
+class AppConfig {
+  static late final Environment environment;
+  static late final bool isDebug;
+  static late final bool enableQueryLogs;
+  static late final String databaseUrl;
+
+  static void load() {
+    environment = Environment.fromString(Env.get('APP_ENV', fallback: 'dev'));
+
+    isDebug = environment == Environment.dev;
+    enableQueryLogs = environment != Environment.prod;
+
+    databaseUrl = Env.get('DATABASE_URL');
+
+    print('[CONFIG] Environment: $environment');
+    print('[CONFIG] Debug: $isDebug');
+  }
+
+  static bool get isDev => environment == Environment.dev;
+  static bool get isStaging => environment == Environment.staging;
+  static bool get isProd => environment == Environment.prod;
+}
+
+
+│── environment.dart:
+enum Environment {
+  dev,
+  staging,
+  prod;
+
+  static Environment fromString(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'dev':
+      case 'development':
+        return Environment.dev;
+
+      case 'staging':
+      case 'stage':
+        return Environment.staging;
+
+      case 'prod':
+      case 'production':
+        return Environment.prod;
+
+      default:
+        return Environment.dev;
+    }
+  }
+}
 
 
 database_connection.dart: 
@@ -215,6 +294,44 @@ class ApiResponse {
     return {'success': false, 'message': message, 'data': data};
   }
 }
+
+http_to_shelf.dart:
+import 'dart:async';
+import 'dart:io';
+
+import 'package:shelf/shelf.dart';
+
+Future<Request> httpToShelfRequest(HttpRequest req) async {
+  final bodyBytes = await req.fold<List<int>>(<int>[], (buffer, data) => buffer..addAll(data));
+
+  final headers = <String, String>{};
+  req.headers.forEach((k, v) {
+    if (v.isNotEmpty) headers[k] = v.join(',');
+  });
+
+  return Request(req.method, req.requestedUri, protocolVersion: req.protocolVersion, headers: headers, body: Stream.fromIterable([bodyBytes]));
+}
+
+shelf_to_http.dart:
+import 'dart:io';
+
+import 'package:shelf/shelf.dart';
+
+Future<void> sendShelfResponse(HttpResponse res, Response shelfRes) async {
+  shelfRes.headersAll.forEach((name, values) {
+    for (final val in values) {
+      res.headers.add(name, val);
+    }
+  });
+
+  res.statusCode = shelfRes.statusCode;
+
+  final body = await shelfRes.readAsString();
+  res.write(body);
+
+  await res.close();
+}
+
 
 context.dart:
 import 'dart:io';
@@ -542,3 +659,83 @@ Future<void> startServer({int port = 8080}) async {
     router.handle(req);
   }
 }
+openapi/openapi.yaml
+openapi: 3.1.0
+info:
+  title: Sympllizy API
+  version: "1.0.0"
+
+paths:
+  /ping:
+    get:
+      summary: Check API health
+      responses:
+        '200':
+          description: OK
+
+
+swagger/openapi_spec.dart:
+class OpenApiSpec {
+  static String get spec => '''
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sympllizy API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/ping": {
+      "get": {
+        "summary": "API health check",
+        "responses": {
+          "200": {
+            "description": "API is up"
+          }
+        }
+      }
+    }
+  }
+}
+''';
+}
+swagger/swagger_handler.dart
+import 'package:shelf/shelf.dart';
+import 'package:shelf_swagger_ui/shelf_swagger_ui.dart';
+
+import 'openapi_spec.dart';
+
+class SwaggerHandler {
+  static Handler get handler => SwaggerUI(
+    OpenApiSpec.spec, // <- aqui passa o schema diretamente
+    title: 'Sympllizy API Docs',
+    specType: SpecType.json,
+    docExpansion: DocExpansion.list,
+    deepLink: true,
+    persistAuthorization: true,
+  ).call;
+}
+
+
+pubspec.yaml
+name: sympllizy_back
+description: A server app using the shelf package and Docker.
+version: 1.0.0
+# repository: https://github.com/my_org/my_repo
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  bcrypt: ^1.1.3
+  crypto: ^3.0.7
+  dart_jsonwebtoken: ^3.3.1
+  dotenv: ^4.2.0
+  postgres: ^3.5.9
+  shelf: ^1.4.2
+  shelf_router: ^1.1.2
+  shelf_swagger_ui: ^2.0.0
+
+dev_dependencies:
+  http: ^1.2.2
+  lints: ^6.0.0
+  test: ^1.25.6

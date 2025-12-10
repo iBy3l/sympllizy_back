@@ -1,4 +1,3 @@
-// lib/core/security/password_hash.dart
 import 'package:bcrypt/bcrypt.dart';
 
 class PasswordHash {

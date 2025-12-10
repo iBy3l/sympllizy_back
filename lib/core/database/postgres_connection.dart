@@ -1,6 +1,8 @@
 import 'package:postgres/postgres.dart';
 import 'package:sympllizy_back/core/database/database_connection.dart';
 
+import '../config/app_config.dart';
+
 class PostgresConnection extends DatabaseConnection {
   final String url;
   late final Endpoint _endpoint;
@@ -18,15 +20,11 @@ class PostgresConnection extends DatabaseConnection {
       password: uri.userInfo.contains(':') ? uri.userInfo.split(':')[1] : '',
     );
   }
-
   @override
   Future<void> connect() async {
-    _conn = await Connection.open(
-      _endpoint,
-      settings: const ConnectionSettings(
-        sslMode: SslMode.disable, // LOCAL => sem SSL
-      ),
-    );
+    final settings = ConnectionSettings(sslMode: AppConfig.isProd ? SslMode.require : SslMode.disable);
+
+    _conn = await Connection.open(_endpoint, settings: settings);
 
     print('[DB] Conectado com sucesso!');
   }
