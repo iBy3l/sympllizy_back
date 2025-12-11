@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import '../core/core.dart';
+import 'package:sympllizy_back/core/core.dart';
+import 'package:sympllizy_back/core/swagger/swagger_handler.dart';
 
 Future<void> startServer({int port = 8080}) async {
   final router = Router();
@@ -13,12 +14,6 @@ Future<void> startServer({int port = 8080}) async {
   router.use(corsMiddleware);
   router.use(orgContextMiddleware);
   // router.use(authMiddleware); // depois, quando quiser global
-
-  // rota básica de health-check
-  // server.dart
-  router.get('/health', (ctx) async {
-    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'ok', data: {'uptime': DateTime.now().toIso8601String()}));
-  });
 
   // registro da doc (pode ficar logo após o router.get)
   OpenApi.addOperation(
@@ -42,19 +37,22 @@ Future<void> startServer({int port = 8080}) async {
 
     await ctx.response.close();
   });
-  router.get('/openapi.json', (ctx) async {
-    final json = OpenApi.json();
-
-    ctx.response
-      ..statusCode = HttpStatus.ok
-      ..headers.contentType = ContentType.json
-      ..write(json);
-
-    await ctx.response.close();
+  router.get('/docs', (ctx) async {
+    final shelfReq = await httpToShelfRequest(ctx.request);
+    final shelfRes = await SwaggerHandler.handler(shelfReq);
+    await sendShelfResponse(ctx.response, shelfRes);
   });
+
+  router.get('/docs/:rest', (ctx) async {
+    final shelfReq = await httpToShelfRequest(ctx.request);
+    final shelfRes = await SwaggerHandler.handler(shelfReq);
+    await sendShelfResponse(ctx.response, shelfRes);
+  });
+
   // server.dart
   router.get('/health', (ctx) async {
     sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'ok', data: {'uptime': DateTime.now().toIso8601String()}));
+    return; // <<< ESSENCIAL
   });
 
   // registro da doc (pode ficar logo após o router.get)

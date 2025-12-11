@@ -43,7 +43,7 @@ class OpenApi {
     });
 
     return {
-      'openapi': '3.1.0',
+      'openapi': '3.0.3',
       'info': {'title': 'Sympllizy API', 'version': '1.0.0'},
       'paths': paths,
     };
