@@ -1,7 +1,7 @@
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:sympllizy_back/core/core.dart';
 
-Middleware jwtMiddleware(JwtService jwt) {
+Middleware jwtMiddleware(JwtService jwtService) {
   return (HttpContext ctx, Future<void> Function() next) async {
     final authHeader = ctx.header('authorization');
 
@@ -12,12 +12,12 @@ Middleware jwtMiddleware(JwtService jwt) {
     final token = authHeader.substring(7).trim();
 
     try {
-      final jwtToken = jwt.verifyAccessToken(token);
+      final jwt = jwtService.verifyAccessToken(token);
 
-      // popula contexto
-      ctx.locals['user_id'] = jwt.getUserId(jwtToken);
-      ctx.locals['org_id'] = jwt.getOrgId(jwtToken);
-      ctx.locals['roles'] = jwt.getRoles(jwtToken);
+      // Injeta no contexto (disponível para toda a request)
+      ctx.locals['user_id'] = jwtService.getUserId(jwt);
+      ctx.locals['org_id'] = jwtService.getOrgId(jwt);
+      ctx.locals['roles'] = jwtService.getRoles(jwt);
 
       await next();
     } on JWTExpiredException {
