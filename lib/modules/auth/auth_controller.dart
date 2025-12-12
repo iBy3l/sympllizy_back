@@ -1,4 +1,5 @@
 import 'dart:developer';
+import 'dart:io';
 
 import 'package:sympllizy_back/core/core.dart';
 
@@ -37,5 +38,20 @@ class AuthController {
       log("Erro em signup", error: e, stackTrace: stack);
       sendJson(ctx, 500, ApiResponse.error(message: "Erro interno"));
     }
+  }
+
+  Future<void> login(HttpContext ctx) async {
+    final body = await readJson(ctx.request);
+
+    final email = body['email'] as String?;
+    final password = body['password'] as String?;
+
+    if (email == null || password == null) {
+      throw ValidationException('Email e senha são obrigatórios', details: {'email': 'required', 'password': 'required'});
+    }
+
+    final result = await _service.login(email: email, password: password);
+
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Login realizado com sucesso', data: result));
   }
 }

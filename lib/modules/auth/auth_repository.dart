@@ -14,6 +14,9 @@ abstract class AuthRepository {
   Future<Map<String, dynamic>> createDefaultCompany(DatabaseConnection db, String orgId);
 
   Future<void> saveRefreshToken(DatabaseConnection db, {required String userId, required String token, required DateTime expiresAt});
+
+  Future<Map<String, dynamic>> findPrimaryOrgByUser(String userId);
+  Future<List<String>> findUserRoles(String userId, String orgId);
 }
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -56,6 +59,20 @@ class AuthRepositoryImpl implements AuthRepository {
     INSERT INTO auth.refresh_tokens (user_id, token, expires_at)
     VALUES (\$1, \$2, \$3)
   ''';
+  static const String selectPrimaryOrg = '''
+  SELECT o.id, o.name, o.slug
+  FROM data.orgs o
+  JOIN data.org_users ou ON ou.org_id = o.id
+  WHERE ou.user_id = \$1
+  ORDER BY ou.created_at
+  LIMIT 1
+''';
+
+  static const String selectRoles = '''
+  SELECT role
+  FROM data.org_users
+  WHERE user_id = \$1 AND org_id = \$2
+''';
 
   @override
   Future<Map<String, dynamic>?> findUserByEmail(String email) async {
@@ -95,5 +112,20 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> saveRefreshToken(DatabaseConnection db, {required String userId, required String token, required DateTime expiresAt}) async {
     await db.execute(insertRefreshToken, [userId, token, expiresAt.toUtc()]);
+  }
+
+  @override
+  Future<Map<String, dynamic>> findPrimaryOrgByUser(String userId) async {
+    final rows = await _db.query(selectPrimaryOrg, [userId]);
+    if (rows.isEmpty) {
+      throw ForbiddenException('Usuário sem organização');
+    }
+    return rows.first;
+  }
+
+  @override
+  Future<List<String>> findUserRoles(String userId, String orgId) async {
+    final rows = await _db.query(selectRoles, [userId, orgId]);
+    return rows.map((e) => e['role'].toString()).toList();
   }
 }

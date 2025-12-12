@@ -1,36 +1,53 @@
+import 'dart:convert';
+
 import '../database/database_connection.dart';
 import 'log_entry.dart';
-import 'log_level.dart';
 import 'logger.dart';
 
-class DbLogger implements Logger {
+class DbLogger extends Logger {
   final DatabaseConnection db;
 
   DbLogger(this.db);
-
   @override
-  Future<void> log(LogEntry e) async {
+  Future<void> log(LogEntry entry) async {
     await db.execute(
       '''
       INSERT INTO data.logs (
-        level, type, message, context,
-        user_id, org_id,
-        method, path, status_code,
-        ip, user_agent
+        level,
+        type,
+        message,
+        context,
+        request_id,
+        method,
+        path,
+        status_code,
+        user_id,
+        org_id,
+        ip,
+        user_agent,
+        created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (
+        \$1, \$2, \$3, \$4,
+        \$5, \$6, \$7, \$8,
+        \$9, \$10, \$11, \$12,
+        NOW()
+      )
       ''',
-      [e.level.name, e.type, e.message, e.context, e.userId, e.orgId, e.method, e.path, e.statusCode, e.ip, e.userAgent],
+      [
+        entry.level.name,
+        entry.type,
+        entry.message,
+        entry.context != null ? jsonEncode(entry.context) : null,
+        entry.requestId,
+        entry.method,
+        entry.path,
+        entry.statusCode,
+        entry.userId,
+        entry.orgId,
+        entry.ip,
+        entry.userAgent,
+      ],
     );
-  }
-
-  @override
-  Future<void> info(String type, String message, {Map<String, dynamic>? ctx}) {
-    return log(LogEntry(level: LogLevel.info, type: type, message: message, context: ctx));
-  }
-
-  @override
-  Future<void> error(String type, String message, {Map<String, dynamic>? ctx}) {
-    return log(LogEntry(level: LogLevel.error, type: type, message: message, context: ctx));
   }
 }

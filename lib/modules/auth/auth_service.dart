@@ -5,6 +5,7 @@ import 'auth_repository.dart';
 
 abstract class AuthService {
   Future<AuthEntity> signup({required String orgName, required String email, required String password, String? fullName});
+  Future<Map<String, dynamic>> login({required String email, required String password});
 }
 
 class AuthServiceImpl implements AuthService {
@@ -72,5 +73,42 @@ class AuthServiceImpl implements AuthService {
         tokens: tokens,
       );
     });
+  }
+
+  @override
+  Future<Map<String, dynamic>> login({required String email, required String password}) async {
+    final user = await _repo.findUserByEmail(email);
+
+    if (user == null) {
+      throw UnauthorizedException('Credenciais inválidas');
+    }
+
+    final passwordHash = user['password_hash'] as String;
+    final isValid = _hasher.verify(password, passwordHash);
+
+    if (!isValid) {
+      throw UnauthorizedException('Credenciais inválidas');
+    }
+
+    final userId = user['id'].toString();
+
+    // Busca org principal
+    final org = await _repo.findPrimaryOrgByUser(userId);
+    final orgId = org['id'].toString();
+
+    final roles = await _repo.findUserRoles(userId, orgId);
+
+    final tokens = _jwt.generateTokens(userId: userId, orgId: orgId, roles: roles);
+
+    await _repo.saveRefreshToken(_db, userId: userId, token: tokens.refreshToken, expiresAt: DateTime.fromMillisecondsSinceEpoch(tokens.refreshExpiresAt * 1000, isUtc: true));
+
+    return {
+      'access_token': tokens.accessToken,
+      'refresh_token': tokens.refreshToken,
+      'access_expires_at': tokens.accessExpiresAt,
+      'refresh_expires_at': tokens.refreshExpiresAt,
+      'user': {'id': userId, 'email': email, 'roles': roles},
+      'org': {'id': orgId, 'name': org['name'], 'slug': org['slug']},
+    };
   }
 }

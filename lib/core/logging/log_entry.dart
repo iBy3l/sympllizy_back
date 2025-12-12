@@ -4,6 +4,7 @@ class LogEntry {
   final LogLevel level;
   final String type;
   final String message;
+
   final Map<String, dynamic>? context;
 
   final String? userId;
@@ -16,5 +17,7 @@ class LogEntry {
   final String? ip;
   final String? userAgent;
 
-  LogEntry({required this.level, required this.type, required this.message, this.context, this.userId, this.orgId, this.method, this.path, this.statusCode, this.ip, this.userAgent});
+  final String? requestId;
+
+  LogEntry({required this.level, required this.type, required this.message, this.context, this.userId, this.orgId, this.method, this.path, this.statusCode, this.ip, this.userAgent, this.requestId});
 }
