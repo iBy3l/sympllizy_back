@@ -1,19 +1,18 @@
-import 'package:bcrypt/bcrypt.dart';
+import 'dart:convert';
 
-class PasswordHash {
-  const PasswordHash._();
+import 'package:crypto/crypto.dart';
 
-  static String hash(String plainPassword) {
-    if (plainPassword.isEmpty) {
-      throw ArgumentError('Senha não pode ser vazia');
-    }
-    return BCrypt.hashpw(plainPassword, BCrypt.gensalt());
+class PasswordHasher {
+  const PasswordHasher();
+
+  String hash(String password) {
+    // Futuro: adicionar salt/pepper
+    final bytes = utf8.encode(password);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
   }
 
-  static bool verify(String plainPassword, String passwordHash) {
-    if (plainPassword.isEmpty || passwordHash.isEmpty) {
-      return false;
-    }
-    return BCrypt.checkpw(plainPassword, passwordHash);
+  bool verify(String password, String hashValue) {
+    return hash(password) == hashValue;
   }
 }

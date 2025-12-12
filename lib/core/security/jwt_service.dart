@@ -15,6 +15,25 @@ class JwtService {
     : _secret = secret ?? Env.get('JWT_SECRET'),
       _issuer = issuer ?? Env.get('JWT_ISSUER');
 
+  TokenPair generateTokens({required String userId, required String orgId, List<String> roles = const []}) {
+    final now = DateTime.now();
+    final accessExp = now.add(accessTokenDuration);
+    final refreshExp = now.add(refreshTokenDuration);
+    // ACCESS TOKEN --------------------------------------------------------
+    final accessJwt = JWT(
+      {'org': orgId, 'roles': roles, 'type': 'access', 'iat': now.millisecondsSinceEpoch ~/ 1000, 'exp': accessExp.millisecondsSinceEpoch ~/ 1000},
+      issuer: _issuer,
+      subject: userId,
+    );
+    final accessToken = accessJwt.sign(SecretKey(_secret));
+    // REF
+    // REF
+    // REFRESH TOKEN --------------------------------------------------------
+    final refreshJwt = JWT({'org': orgId, 'type': 'refresh', 'iat': now.millisecondsSinceEpoch ~/ 1000, 'exp': refreshExp.millisecondsSinceEpoch ~/ 1000}, issuer: _issuer, subject: userId);
+    final refreshToken = refreshJwt.sign(SecretKey(_secret));
+    return TokenPair(accessToken: accessToken, refreshToken: refreshToken, accessExpiresAt: accessExp.millisecondsSinceEpoch ~/ 1000, refreshExpiresAt: refreshExp.millisecondsSinceEpoch ~/ 1000);
+  }
+
   TokenPair generateTokenPair({required String userId, required String orgId, List<String> roles = const []}) {
     final now = DateTime.now();
     final accessExp = now.add(accessTokenDuration);
@@ -34,11 +53,11 @@ class JwtService {
 
     final refreshToken = refreshJwt.sign(SecretKey(_secret));
 
-    return TokenPair(accessToken: accessToken, refreshToken: refreshToken);
+    return TokenPair(accessToken: accessToken, refreshToken: refreshToken, accessExpiresAt: accessExp.millisecondsSinceEpoch ~/ 1000, refreshExpiresAt: refreshExp.millisecondsSinceEpoch ~/ 1000);
   }
 
   // -----------------------------------------------------------------------
-
+  static JwtService createFromEnv() => JwtService();
   JWT verifyAccessToken(String token) {
     final jwt = _verify(token);
     if (jwt.payload['type'] != 'access') {

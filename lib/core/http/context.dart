@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 class HttpContext {
@@ -26,4 +27,9 @@ class HttpContext {
   }
 
   String get userAgent => header('user-agent') ?? '';
+
+  Future<dynamic> bodyAsJson() async {
+    final content = await utf8.decoder.bind(request).join();
+    return content.isNotEmpty ? jsonDecode(content) : {};
+  }
 }

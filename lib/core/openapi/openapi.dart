@@ -2,52 +2,63 @@ import 'dart:convert';
 
 class OpenApiOperation {
   final String summary;
-  final Map<String, dynamic>? requestBodySchema;
-  final Map<String, dynamic>? responses;
+  final String? description;
+  final OpenApiRequestBody? requestBody;
+  final Map<String, dynamic> responses;
 
-  OpenApiOperation({required this.summary, this.requestBodySchema, this.responses});
+  OpenApiOperation({required this.summary, this.description, this.requestBody, required this.responses});
 
   Map<String, dynamic> toJson() {
-    return {
-      'summary': summary,
-      if (requestBodySchema != null)
-        'requestBody': {
-          'content': {
-            'application/json': {'schema': requestBodySchema},
-          },
-        },
-      if (responses != null) 'responses': responses,
-    };
+    final map = {'summary': summary, 'responses': responses};
+
+    if (description != null) {
+      map['description'] = description!;
+    }
+
+    if (requestBody != null) {
+      map['requestBody'] = requestBody!.toJson();
+    }
+
+    return map;
+  }
+}
+
+class OpenApiRequestBody {
+  final bool required;
+  final Map<String, dynamic> content;
+
+  OpenApiRequestBody({this.required = false, required this.content});
+
+  Map<String, dynamic> toJson() {
+    return {'required': required, 'content': content};
   }
 }
 
 class OpenApi {
-  static final Map<String, Map<String, OpenApiOperation>> _paths = {};
+  static final Map<String, dynamic> _paths = {};
 
-  static void addOperation({
-    required String method, // get, post...
-    required String path, // /auth/signup
-    required OpenApiOperation operation,
-  }) {
-    final m = method.toLowerCase();
+  /// Registra uma operação OpenAPI para um método + caminho
+  static void addOperation({required String method, required String path, required OpenApiOperation operation}) {
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    final upperMethod = method.toLowerCase();
 
-    _paths.putIfAbsent(path, () => {});
-    _paths[path]![m] = operation;
+    // Se não existir ainda, cria o path
+    if (!_paths.containsKey(normalizedPath)) {
+      _paths[normalizedPath] = {};
+    }
+
+    // Adiciona a operação específica (get/post/put...)
+    _paths[normalizedPath][upperMethod] = operation.toJson();
   }
 
-  static Map<String, dynamic> build() {
-    final paths = <String, dynamic>{};
-
-    _paths.forEach((path, methods) {
-      paths[path] = {for (final entry in methods.entries) entry.key: entry.value.toJson()};
-    });
-
-    return {
-      'openapi': '3.0.3',
+  /// Retorna o JSON completo para o Swagger
+  static String json() {
+    final doc = {
+      'openapi': '3.0.0',
       'info': {'title': 'Sympllizy API', 'version': '1.0.0'},
-      'paths': paths,
+      'paths': _paths,
     };
-  }
 
-  static String json() => jsonEncode(build());
+    return jsonEncode(doc);
+  }
 }

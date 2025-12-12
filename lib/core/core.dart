@@ -2,6 +2,7 @@ export 'config/config.dart';
 export 'database/database.dart';
 export 'errors/erros.dart';
 export 'http/http.dart';
+export 'logging/logging.dart';
 export 'middleware/middleware.dart';
 export 'openapi/openapi.dart';
 export 'routes/routes.dart';

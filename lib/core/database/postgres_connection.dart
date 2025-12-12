@@ -1,75 +1,85 @@
 import 'package:postgres/postgres.dart';
-import 'package:sympllizy_back/core/database/database_connection.dart';
 
-import '../config/app_config.dart';
+import 'database_connection.dart';
 
 class PostgresConnection extends DatabaseConnection {
   final String url;
-  late final Endpoint _endpoint;
-
   Connection? _conn;
 
-  PostgresConnection(this.url) {
+  PostgresConnection(this.url);
+
+  @override
+  Future<void> connect() async {
     final uri = Uri.parse(url);
 
-    _endpoint = Endpoint(
+    final endpoint = Endpoint(
       host: uri.host,
       port: uri.port == 0 ? 5432 : uri.port,
       database: uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '',
       username: uri.userInfo.split(':').first,
-      password: uri.userInfo.contains(':') ? uri.userInfo.split(':')[1] : '',
+      password: uri.userInfo.split(':').length > 1 ? uri.userInfo.split(':')[1] : null,
     );
-  }
-  @override
-  Future<void> connect() async {
-    final settings = ConnectionSettings(sslMode: AppConfig.isProd ? SslMode.require : SslMode.disable);
 
-    _conn = await Connection.open(_endpoint, settings: settings);
+    _conn = await Connection.open(endpoint, settings: const ConnectionSettings(sslMode: SslMode.disable));
 
     print('[DB] Conectado com sucesso!');
   }
 
   Connection get raw => _conn!;
 
-  // --------------------------
-  // QUERY
-  // --------------------------
   @override
   Future<List<Map<String, dynamic>>> query(String sql, [List<dynamic>? params]) async {
-    if (_conn == null) throw Exception('DB não conectado');
-
-    final result = await _conn!.execute(sql, parameters: params ?? const []);
+    final conn = _conn!;
+    final result = await conn.execute(sql, parameters: params);
 
     return result.map((row) => row.toColumnMap()).toList();
   }
 
-  // --------------------------
-  // EXECUTE (INSERT/UPDATE/DELETE)
-  // --------------------------
   @override
   Future<int> execute(String sql, [List<dynamic>? params]) async {
-    if (_conn == null) throw Exception('DB não conectado');
-
-    final result = await _conn!.execute(sql, parameters: params ?? const []);
+    final conn = _conn!;
+    final result = await conn.execute(sql, parameters: params);
 
     return result.affectedRows;
   }
 
-  // --------------------------
-  // TRANSACTION
-  // --------------------------
   @override
-  Future<T> transaction<T>(Future<T> Function() action) async {
-    if (_conn == null) throw Exception('DB não conectado');
-
-    return await _conn!.runTx((session) async {
-      try {
-        final value = await action();
-        return value;
-      } catch (e) {
-        await session.rollback();
-        rethrow;
-      }
+  Future<T> transaction<T>(Future<T> Function(DatabaseConnection tx) action) async {
+    final conn = _conn!;
+    return await conn.runTx((session) async {
+      final txConn = _TxPostgresConnection(session);
+      return await action(txConn);
     });
+  }
+}
+
+/// Conexão usada **dentro** de uma transação
+class _TxPostgresConnection extends DatabaseConnection {
+  final Session _session;
+
+  _TxPostgresConnection(this._session);
+
+  @override
+  Future<void> connect() async {
+    // Não faz nada em tx
+    return;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> query(String sql, [List<dynamic>? params]) async {
+    final result = await _session.execute(sql, parameters: params);
+
+    return result.map((row) => row.toColumnMap()).toList();
+  }
+
+  @override
+  Future<int> execute(String sql, [List<dynamic>? params]) async {
+    final result = await _session.execute(sql, parameters: params);
+    return result.affectedRows;
+  }
+
+  @override
+  Future<T> transaction<T>(Future<T> Function(DatabaseConnection tx) action) {
+    throw UnsupportedError('Transação dentro de transação não suportada');
   }
 }

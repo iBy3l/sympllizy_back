@@ -41,6 +41,12 @@ class Router {
     _routes.add(_RouteEntry(method.toUpperCase(), path, segments, handler));
   }
 
+  void group(String prefix, void Function(Router router) register, {List<Middleware> middlewares = const []}) {
+    final child = _GroupedRouter(parent: this, prefix: prefix, inheritedMiddlewares: [..._middlewares, ...middlewares]);
+
+    register(child);
+  }
+
   Future<void> handle(HttpRequest request) async {
     final ctx = HttpContext(request);
 
@@ -105,5 +111,86 @@ class Router {
     }
 
     return null;
+  }
+}
+
+class _GroupedRouter extends Router {
+  final Router parent;
+  final String prefix;
+  final List<Middleware> inheritedMiddlewares;
+
+  _GroupedRouter({required this.parent, required this.prefix, required this.inheritedMiddlewares});
+
+  String _fullPath(String path) {
+    if (path.startsWith('/')) {
+      return prefix + path;
+    }
+    return '$prefix/$path';
+  }
+
+  // ===========================================================
+  //               OVERRIDE DE TODOS OS MÉTODOS HTTP
+  // ===========================================================
+
+  @override
+  void get(String path, Handler handler) {
+    parent._add('GET', _fullPath(path), _wrap(handler));
+  }
+
+  @override
+  void post(String path, Handler handler) {
+    parent._add('POST', _fullPath(path), _wrap(handler));
+  }
+
+  @override
+  void put(String path, Handler handler) {
+    parent._add('PUT', _fullPath(path), _wrap(handler));
+  }
+
+  @override
+  void delete(String path, Handler handler) {
+    parent._add('DELETE', _fullPath(path), _wrap(handler));
+  }
+
+  @override
+  void patch(String path, Handler handler) {
+    parent._add('PATCH', _fullPath(path), _wrap(handler));
+  }
+
+  @override
+  void options(String path, Handler handler) {
+    parent._add('OPTIONS', _fullPath(path), _wrap(handler));
+  }
+
+  // ===========================================================
+  //                    WRAPPER DE MIDDLEWARES
+  // ===========================================================
+
+  Handler _wrap(Handler handler) {
+    return (ctx) async {
+      var index = -1;
+
+      Future<void> run() async {
+        index++;
+        if (index < inheritedMiddlewares.length) {
+          await inheritedMiddlewares[index](ctx, run);
+        } else {
+          await handler(ctx);
+        }
+      }
+
+      await run();
+    };
+  }
+
+  // Estes não precisam existir no group (evita duplicação)
+  @override
+  void use(Middleware middleware) {
+    throw UnsupportedError("Use middlewares no group via parâmetro 'middlewares:'");
+  }
+
+  @override
+  Future<void> handle(HttpRequest request) {
+    throw UnsupportedError("Group não deve chamar handle().");
   }
 }
