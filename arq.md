@@ -395,6 +395,7 @@ class HttpContext {
   Uri get uri => request.uri;
   String get path => request.uri.path;
   Map<String, String> get query => request.uri.queryParameters;
+  final Map<String, dynamic> items = {};
 
   String? header(String name) => request.headers.value(name);
 
@@ -413,6 +414,7 @@ class HttpContext {
     return content.isNotEmpty ? jsonDecode(content) : {};
   }
 }
+
 
 
 ├── http_to_shelf.dart:
@@ -887,6 +889,58 @@ Future<void> errorMiddleware(Object error, StackTrace stack, HttpContext ctx) as
 
   sendJson(ctx, HttpStatus.internalServerError, ApiResponse.error(message: 'Erro interno'));
 }
+lib/core/middleware/require_any_role.dart:
+import 'package:sympllizy_back/core/utils/is_authenticated.dart';
+
+import '../core.dart';
+
+Middleware requireAnyRole(List<String> roles) {
+  return (ctx, next) async {
+    if (!ctx.isAuthenticated) {
+      throw UnauthorizedException('Autenticação necessária');
+    }
+
+    final hasPermission = ctx.roles.any(roles.contains);
+
+    if (!hasPermission) {
+      throw ForbiddenException('Permissão insuficiente');
+    }
+
+    await next();
+  };
+}
+
+lib/core/middleware/require_auth.dart:
+
+import 'package:sympllizy_back/core/http/http_context_auth.dart'; // 👈 ESSENCIAL
+
+import '../errors/erros.dart';
+import '../http/router.dart';
+
+Middleware requireAuth() {
+  return (ctx, next) async {
+    if (!ctx.isAuthenticated) {
+      throw UnauthorizedException('Autenticação necessária');
+    }
+    await next();
+  };
+}
+lib/core/utils/is_authenticated.dart:
+
+// lib/core/http/http_context_auth.dart
+import 'package:sympllizy_back/core/core.dart';
+import 'package:sympllizy_back/core/http/http_context_auth.dart';
+
+extension HttpContextAuth on HttpContext {
+  AuthContext? get auth => locals['auth'] as AuthContext?;
+
+  bool get isAuthenticated => auth != null;
+
+  String get userId => auth?.userId ?? '';
+  String get orgId => auth?.orgId ?? '';
+  List<String> get roles => auth?.roles ?? [];
+}
+
 
 
 ├── logging_middleware.dart:
@@ -907,16 +961,52 @@ Future<void> loggingMiddleware(HttpContext ctx, Future<void> Function() next) as
     'duration=${duration.inMilliseconds}ms',
   );
 }
+lib/core/http/http_context_auth.dart:
+import 'package:sympllizy_back/core/errors/erros.dart';
+
+import 'context.dart';
+
+class AuthContext {
+  final String userId;
+  final String orgId;
+  final List<String> roles;
+
+  AuthContext({required this.userId, required this.orgId, required this.roles});
+}
+
+extension AuthContextExt on HttpContext {
+  static const _key = '_auth';
+
+  AuthContext get auth {
+    final value = items[_key];
+    if (value == null || value is! AuthContext) {
+      throw UnauthorizedException('Usuário não autenticado');
+    }
+    return value;
+  }
+
+  void setAuth(AuthContext auth) {
+    items[_key] = auth;
+  }
+
+  bool get isAuthenticated => items.containsKey(_key);
+}
+
 
 └── require_role.dart:
 import 'package:sympllizy_back/core/errors/forbidden_exception.dart';
 import 'package:sympllizy_back/core/http/router.dart';
 
+import '../core.dart';
+import '../http/http_context_auth.dart';
+
 Middleware requireRole(String role) {
   return (ctx, next) async {
-    final roles = (ctx.locals['roles'] as List<String>?) ?? [];
+    if (!ctx.isAuthenticated) {
+      throw UnauthorizedException('Autenticação necessária');
+    }
 
-    if (!roles.contains(role)) {
+    if (!ctx.auth.roles.contains(role)) {
       throw ForbiddenException('Permissão insuficiente');
     }
 
@@ -924,12 +1014,15 @@ Middleware requireRole(String role) {
   };
 }
 
+
 └── jwt_middleware.dart:
 import '../core.dart';
 
-Middleware jwtMiddleware(JwtService jwtService) {
+import 'package:sympllizy_back/core/core.dart';
+
+Middleware jwtMiddleware(JwtService jwt) {
   return (HttpContext ctx, Future<void> Function() next) async {
-    final authHeader = ctx.header('authorization');
+    final authHeader = ctx.request.headers.value(HttpHeaders.authorizationHeader);
 
     if (authHeader == null || !authHeader.startsWith('Bearer ')) {
       throw UnauthorizedException('Token não informado');
@@ -938,19 +1031,31 @@ Middleware jwtMiddleware(JwtService jwtService) {
     final token = authHeader.substring(7).trim();
 
     try {
-      final jwt = jwtService.verifyAccessToken(token);
+      final jwtDecoded = jwt.verifyAccessToken(token);
 
-      // ✅ USAR O SERVICE (não o JWT direto)
-      ctx.locals['userId'] = jwtService.getUserId(jwt);
-      ctx.locals['orgId'] = jwtService.getOrgId(jwt);
-      ctx.locals['roles'] = jwtService.getRoles(jwt);
+      final userId = jwt.getUserId(jwtDecoded);
+      final orgId = jwt.getOrgId(jwtDecoded);
+      final roles = jwt.getRoles(jwtDecoded);
+
+      if (userId.isEmpty || orgId.isEmpty) {
+        throw UnauthorizedException('Token inválido');
+      }
+
+      ctx.setAuth(
+        AuthContext(
+          userId: userId,
+          orgId: orgId,
+          roles: roles,
+        ),
+      );
 
       await next();
-    } catch (e) {
-      throw UnauthorizedException('Token inválido ou expirado');
+    } on JWTException catch (e) {
+      throw UnauthorizedException(e.message);
     }
   };
 }
+
 
 
 └── org_context_middleware.dart:
@@ -1321,6 +1426,7 @@ Modulo ==>
 │   │   ├── auth
 │   │   │   ├── auth_controller.dart:
 import 'dart:developer';
+import 'dart:io';
 
 import 'package:sympllizy_back/core/core.dart';
 
@@ -1360,6 +1466,95 @@ class AuthController {
       sendJson(ctx, 500, ApiResponse.error(message: "Erro interno"));
     }
   }
+
+  Future<void> login(HttpContext ctx) async {
+    final body = await readJson(ctx.request);
+
+    final email = body['email'] as String?;
+    final password = body['password'] as String?;
+
+    if (email == null || password == null) {
+      throw ValidationException('Email e senha são obrigatórios', details: {'email': 'required', 'password': 'required'});
+    }
+
+    final result = await _service.login(email: email, password: password);
+
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Login realizado com sucesso', data: result));
+  }
+
+  Future<void> refresh(HttpContext ctx) async {
+    final body = await readJson(ctx.request);
+
+    final refreshToken = body['refresh_token'] as String?;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw ValidationException('Refresh token é obrigatório', details: {'refresh_token': 'obrigatório'});
+    }
+
+    final result = await _service.refresh(refreshToken);
+
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Token renovado com sucesso', data: result));
+  }
+}
+
+lib/core/utils/is_authenticated.dart:
+import 'package:sympllizy_back/core/core.dart';
+
+extension AuthContextExt on HttpContext {
+  bool get isAuthenticated => items.containsKey('_auth');
+}
+
+lib/core/security/jwt_middleware.dart:
+import 'dart:io';
+
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
+import 'package:sympllizy_back/core/core.dart';
+import 'package:sympllizy_back/core/http/http_context_auth.dart';
+
+Middleware jwtMiddleware(JwtService jwt) {
+  return (HttpContext ctx, Future<void> Function() next) async {
+    final authHeader = ctx.request.headers.value(HttpHeaders.authorizationHeader);
+
+    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
+      throw UnauthorizedException('Token não informado');
+    }
+
+    final token = authHeader.substring(7).trim();
+
+    try {
+      final jwtDecoded = jwt.verifyAccessToken(token);
+
+      final userId = jwt.getUserId(jwtDecoded);
+      final orgId = jwt.getOrgId(jwtDecoded);
+      final roles = jwt.getRoles(jwtDecoded);
+
+      if (userId.isEmpty || orgId.isEmpty) {
+        throw UnauthorizedException('Token inválido');
+      }
+
+      ctx.setAuth(AuthContext(userId: userId, orgId: orgId, roles: roles));
+
+      await next();
+    } on JWTException catch (e) {
+      throw UnauthorizedException(e.message);
+    }
+  };
+}
+
+
+lib/core/middleware/require_auth.dart:
+
+import 'package:sympllizy_back/core/http/http_context_auth.dart'; // 👈 ESSENCIAL
+
+import '../errors/erros.dart';
+import '../http/router.dart';
+
+Middleware requireAuth() {
+  return (ctx, next) async {
+    if (!ctx.isAuthenticated) {
+      throw UnauthorizedException('Autenticação necessária');
+    }
+    await next();
+  };
 }
 
 
@@ -1473,6 +1668,8 @@ class AuthParam {
 │   │   │   ├── auth_repository.dart:
 import 'package:sympllizy_back/core/core.dart';
 
+import 'package:sympllizy_back/core/core.dart';
+
 abstract class AuthRepository {
   Future<Map<String, dynamic>?> findUserByEmail(String email);
 
@@ -1486,7 +1683,14 @@ abstract class AuthRepository {
 
   Future<Map<String, dynamic>> createDefaultCompany(DatabaseConnection db, String orgId);
 
-  Future<void> saveRefreshToken(DatabaseConnection db, {required String userId, required String token, required DateTime expiresAt});
+  Future<Map<String, dynamic>> findPrimaryOrgByUser(String userId);
+  Future<List<String>> findUserRoles(String userId, String orgId);
+
+  Future<bool> findRefreshToken(DatabaseConnection tx, {required String userId, required String token});
+
+  Future<void> revokeRefreshToken(DatabaseConnection tx, String token);
+
+  Future<void> saveRefreshToken(DatabaseConnection tx, {required String userId, required String token, required DateTime expiresAt});
 }
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -1529,6 +1733,36 @@ class AuthRepositoryImpl implements AuthRepository {
     INSERT INTO auth.refresh_tokens (user_id, token, expires_at)
     VALUES (\$1, \$2, \$3)
   ''';
+  static const String selectPrimaryOrg = '''
+  SELECT o.id, o.name, o.slug
+  FROM data.orgs o
+  JOIN data.org_users ou ON ou.org_id = o.id
+  WHERE ou.user_id = \$1
+  ORDER BY ou.created_at
+  LIMIT 1
+''';
+
+  static const String selectRoles = '''
+  SELECT role
+  FROM data.org_users
+  WHERE user_id = \$1 AND org_id = \$2
+''';
+
+  static const String selectRefreshToken = '''
+SELECT 1
+FROM auth.refresh_tokens
+WHERE user_id = \$1
+  AND token = \$2
+  AND revoked_at IS NULL
+  AND expires_at > NOW()
+LIMIT 1
+''';
+
+  static const String revokeRefreshTokenSql = '''
+UPDATE auth.refresh_tokens
+SET revoked_at = NOW()
+WHERE token = \$1
+''';
 
   @override
   Future<Map<String, dynamic>?> findUserByEmail(String email) async {
@@ -1566,10 +1800,38 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> saveRefreshToken(DatabaseConnection db, {required String userId, required String token, required DateTime expiresAt}) async {
-    await db.execute(insertRefreshToken, [userId, token, expiresAt.toUtc()]);
+  Future<Map<String, dynamic>> findPrimaryOrgByUser(String userId) async {
+    final rows = await _db.query(selectPrimaryOrg, [userId]);
+    if (rows.isEmpty) {
+      throw ForbiddenException('Usuário sem organização');
+    }
+    return rows.first;
+  }
+
+  @override
+  Future<List<String>> findUserRoles(String userId, String orgId) async {
+    final rows = await _db.query(selectRoles, [userId, orgId]);
+    return rows.map((e) => e['role'].toString()).toList();
+  }
+
+  @override
+  Future<bool> findRefreshToken(DatabaseConnection tx, {required String userId, required String token}) async {
+    final rows = await tx.query(selectRefreshToken, [userId, token]);
+
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<void> revokeRefreshToken(DatabaseConnection tx, String token) async {
+    await tx.execute(revokeRefreshTokenSql, [token]);
+  }
+
+  @override
+  Future<void> saveRefreshToken(DatabaseConnection tx, {required String userId, required String token, required DateTime expiresAt}) async {
+    await tx.execute(insertRefreshToken, [userId, token, expiresAt.toUtc()]);
   }
 }
+
 
 
 │   │   │   ├── auth_routes.dart:
@@ -1583,6 +1845,27 @@ class AuthRoutes {
   AuthRoutes(this.controller);
 
   void register(Router router) {
+    // =======================
+    // ROTAS
+    // =======================
+    router.group('/auth', (r) {
+      r.post('/signup', controller.signup);
+      r.post('/login', controller.login);
+      r.post('/refresh', controller.refresh);
+    });
+
+    // =======================
+    // SWAGGER
+    // =======================
+    _registerSignupSwagger();
+    _registerLoginSwagger();
+    _registerRefreshSwagger();
+  }
+
+  // ---------------------------------------------------------------------------
+  // SIGNUP
+  // ---------------------------------------------------------------------------
+  void _registerSignupSwagger() {
     OpenApi.addOperation(
       method: 'post',
       path: '/auth/signup',
@@ -1591,18 +1874,17 @@ class AuthRoutes {
         description: 'Cria uma organização, um usuário proprietário (owner) e a empresa matriz.',
         requestBody: OpenApiRequestBody(
           required: true,
-
           content: {
             'application/json': {
               'schema': {
                 'type': 'object',
+                'required': ['org_name', 'email', 'password'],
                 'properties': {
                   'org_name': {'type': 'string', 'example': 'Minha Empresa'},
-                  'email': {'type': 'string', 'example': 'admin@empresa.com'},
-                  'password': {'type': 'string', 'example': 'senha123'},
+                  'email': {'type': 'string', 'format': 'email', 'example': 'admin@empresa.com'},
+                  'password': {'type': 'string', 'format': 'password', 'example': 'senha123'},
                   'full_name': {'type': 'string', 'example': 'Gabriel Lima'},
                 },
-                'required': ['org_name', 'email', 'password'],
               },
             },
           },
@@ -1620,6 +1902,8 @@ class AuthRoutes {
                     "data": {
                       "access_token": "jwt_access_here",
                       "refresh_token": "jwt_refresh_here",
+                      "access_expires_at": 1765504344,
+                      "refresh_expires_at": 1766107344,
                       "user": {
                         "id": "uuid",
                         "email": "admin@empresa.com",
@@ -1639,10 +1923,104 @@ class AuthRoutes {
         },
       ),
     );
+  }
 
-    router.group('/auth', (r) {
-      r.post('/signup', controller.signup);
-    });
+  // ---------------------------------------------------------------------------
+  // LOGIN
+  // ---------------------------------------------------------------------------
+  void _registerLoginSwagger() {
+    OpenApi.addOperation(
+      method: 'post',
+      path: '/auth/login',
+      operation: OpenApiOperation(
+        summary: 'Login',
+        description: 'Autentica o usuário usando e-mail e senha e retorna os tokens JWT.',
+        requestBody: OpenApiRequestBody(
+          required: true,
+          content: {
+            'application/json': {
+              'schema': {
+                'type': 'object',
+                'required': ['email', 'password'],
+                'properties': {
+                  'email': {'type': 'string', 'format': 'email', 'example': 'admin@empresa.com'},
+                  'password': {'type': 'string', 'format': 'password', 'example': '123456'},
+                },
+              },
+            },
+          },
+        ),
+        responses: {
+          '200': {
+            'description': 'Login realizado com sucesso',
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': 'object',
+                  'example': {
+                    "success": true,
+                    "message": "Login realizado com sucesso",
+                    "data": {
+                      "access_token": "jwt_access_here",
+                      "refresh_token": "jwt_refresh_here",
+                      "access_expires_at": 1765504344,
+                      "refresh_expires_at": 1766107344,
+                      "user": {
+                        "id": "uuid",
+                        "email": "admin@empresa.com",
+                        "full_name": "Gabriel Lima",
+                        "roles": ["owner"],
+                      },
+                      "org": {"id": "uuid", "name": "Minha Empresa", "slug": "minha-empresa"},
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '401': {
+            'description': 'Credenciais inválidas',
+            'content': {
+              'application/json': {
+                'example': {"success": false, "message": "E-mail ou senha inválidos", "data": null},
+              },
+            },
+          },
+          '400': {'description': 'Erro de validação'},
+          '500': {'description': 'Erro interno do servidor'},
+        },
+      ),
+    );
+  }
+
+  void _registerRefreshSwagger() {
+    OpenApi.addOperation(
+      method: 'post',
+      path: '/auth/refresh',
+      operation: OpenApiOperation(
+        summary: 'Renovar token de acesso',
+        description: 'Gera um novo access_token e refresh_token a partir de um refresh token válido.',
+        requestBody: OpenApiRequestBody(
+          required: true,
+          content: {
+            'application/json': {
+              'schema': {
+                'type': 'object',
+                'required': ['refresh_token'],
+                'properties': {
+                  'refresh_token': {'type': 'string', 'example': 'jwt_refresh_here'},
+                },
+              },
+            },
+          },
+        ),
+        responses: {
+          '200': {'description': 'Token renovado com sucesso'},
+          '401': {'description': 'Refresh token inválido ou expirado'},
+          '500': {'description': 'Erro interno do servidor'},
+        },
+      ),
+    );
   }
 }
 

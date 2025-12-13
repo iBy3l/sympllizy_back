@@ -1,29 +1,35 @@
-import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
+import 'dart:io';
+
 import 'package:sympllizy_back/core/core.dart';
+import 'package:sympllizy_back/core/http/http_context_auth.dart';
 
-Middleware jwtMiddleware(JwtService jwtService) {
-  return (HttpContext ctx, Future<void> Function() next) async {
-    final authHeader = ctx.header('authorization');
+Middleware jwtMiddleware(JwtService jwt) {
+  return (ctx, next) async {
+    final header = ctx.request.headers.value(HttpHeaders.authorizationHeader);
 
-    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
-      throw UnauthorizedException('Token não informado');
+    if (header == null || !header.startsWith('Bearer ')) {
+      await next();
+      return;
     }
 
-    final token = authHeader.substring(7).trim();
+    final token = header.substring(7);
 
     try {
-      final jwt = jwtService.verifyAccessToken(token);
+      final decoded = jwt.verifyAccessToken(token);
 
-      // Injeta no contexto (disponível para toda a request)
-      ctx.locals['user_id'] = jwtService.getUserId(jwt);
-      ctx.locals['org_id'] = jwtService.getOrgId(jwt);
-      ctx.locals['roles'] = jwtService.getRoles(jwt);
+      final userId = jwt.getUserId(decoded);
+      final orgId = jwt.getOrgId(decoded);
+      final roles = jwt.getRoles(decoded);
 
-      await next();
-    } on JWTExpiredException {
-      throw UnauthorizedException('Token expirado');
-    } on JWTException catch (e) {
-      throw UnauthorizedException(e.message);
+      if (userId.isEmpty || orgId.isEmpty) {
+        throw UnauthorizedException('Token inválido');
+      }
+
+      ctx.setAuth(AuthContext(userId: userId, orgId: orgId, roles: roles));
+    } catch (e) {
+      throw UnauthorizedException('Token inválido ou expirado');
     }
+
+    await next();
   };
 }

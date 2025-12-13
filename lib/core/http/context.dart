@@ -15,6 +15,7 @@ class HttpContext {
   Uri get uri => request.uri;
   String get path => request.uri.path;
   Map<String, String> get query => request.uri.queryParameters;
+  final Map<String, dynamic> items = {};
 
   String? header(String name) => request.headers.value(name);
 

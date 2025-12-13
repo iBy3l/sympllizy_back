@@ -5,8 +5,9 @@ class OpenApiOperation {
   final String? description;
   final OpenApiRequestBody? requestBody;
   final Map<String, dynamic> responses;
+  final List<Map<String, List<String>>>? security;
 
-  OpenApiOperation({required this.summary, this.description, this.requestBody, required this.responses});
+  OpenApiOperation({required this.summary, this.description, this.requestBody, required this.responses, this.security});
 
   Map<String, dynamic> toJson() {
     final map = {'summary': summary, 'responses': responses};
@@ -17,6 +18,10 @@ class OpenApiOperation {
 
     if (requestBody != null) {
       map['requestBody'] = requestBody!.toJson();
+    }
+
+    if (security != null) {
+      map['security'] = security!;
     }
 
     return map;
@@ -36,27 +41,35 @@ class OpenApiRequestBody {
 
 class OpenApi {
   static final Map<String, dynamic> _paths = {};
+  static final Map<String, dynamic> _securitySchemes = {};
 
-  /// Registra uma operação OpenAPI para um método + caminho
-  static void addOperation({required String method, required String path, required OpenApiOperation operation}) {
-    final normalizedPath = path.startsWith('/') ? path : '/$path';
-    final upperMethod = method.toLowerCase();
-
-    // Se não existir ainda, cria o path
-    if (!_paths.containsKey(normalizedPath)) {
-      _paths[normalizedPath] = {};
-    }
-
-    // Adiciona a operação específica (get/post/put...)
-    _paths[normalizedPath][upperMethod] = operation.toJson();
+  // =======================
+  // SECURITY SCHEMES
+  // =======================
+  static void addSecurityScheme(String name, Map<String, dynamic> scheme) {
+    _securitySchemes[name] = scheme;
   }
 
-  /// Retorna o JSON completo para o Swagger
+  // =======================
+  // PATHS
+  // =======================
+  static void addOperation({required String method, required String path, required OpenApiOperation operation}) {
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    final lowerMethod = method.toLowerCase();
+
+    _paths.putIfAbsent(normalizedPath, () => {});
+    _paths[normalizedPath][lowerMethod] = operation.toJson();
+  }
+
+  // =======================
+  // JSON FINAL
+  // =======================
   static String json() {
     final doc = {
       'openapi': '3.0.0',
       'info': {'title': 'Sympllizy API', 'version': '1.0.0'},
       'paths': _paths,
+      if (_securitySchemes.isNotEmpty) 'components': {'securitySchemes': _securitySchemes},
     };
 
     return jsonEncode(doc);

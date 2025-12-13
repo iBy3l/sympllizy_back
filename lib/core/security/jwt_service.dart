@@ -84,9 +84,13 @@ class JwtService {
     }
   }
 
-  String getUserId(JWT jwt) => jwt.subject ?? '';
+  String getUserId(JWT jwt) {
+    return jwt.payload['sub'] as String? ?? '';
+  }
 
-  String getOrgId(JWT jwt) => jwt.payload['org'] as String? ?? '';
+  String getOrgId(JWT jwt) {
+    return jwt.payload['org'] as String? ?? '';
+  }
 
   List<String> getRoles(JWT jwt) {
     final roles = jwt.payload['roles'];

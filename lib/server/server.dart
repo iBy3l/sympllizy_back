@@ -1,29 +1,28 @@
 import 'dart:io';
 
 import 'package:sympllizy_back/core/core.dart';
-import 'package:sympllizy_back/core/swagger/swagger_handler.dart';
 import 'package:sympllizy_back/modules/auth/auth_dependecy.dart';
 
 Future<void> startServer({int port = 8080}) async {
   final router = Router();
 
-  // ============ ERROR HANDLER ============
+  // ================= ERROR HANDLER =================
   router.setErrorHandler(errorMiddleware);
 
-  // ============ DEPENDÊNCIAS ============
+  // ================= DEPENDÊNCIAS =================
   final db = DB.instance;
   final dbLogger = DbLogger(db);
   final jwtService = JwtService.createFromEnv();
   const hasher = PasswordHasher();
 
-  // ============ MIDDLEWARES GLOBAIS (ORDEM IMPORTA) ============
-  router.use(loggerContextMiddleware(dbLogger)); // 1️⃣ contexto
-  router.use(requestLogger(dbLogger)); // 2️⃣ log de acesso
-  router.use(loggingMiddleware); // 3️⃣ console (dev)
-  router.use(corsMiddleware); // 4️⃣ CORS
-  router.use(orgContextMiddleware); // 5️⃣ org context
+  // ================= MIDDLEWARES GLOBAIS =================
+  router.use(loggerContextMiddleware(dbLogger));
+  router.use(requestLogger(dbLogger));
+  router.use(loggingMiddleware);
+  router.use(corsMiddleware);
+  router.use(orgContextMiddleware);
 
-  // ============ OPENAPI ============
+  // ================= OPENAPI =================
   OpenApi.addOperation(
     method: 'get',
     path: '/health',
@@ -34,12 +33,30 @@ Future<void> startServer({int port = 8080}) async {
       },
     ),
   );
-
-  // ============ ROTAS DE NEGÓCIO ============
-  final authRoutes = authDependency(db: db, jwtService: jwtService, hasher: hasher);
+  // ================= AUTH =================
+  final authRoutes = authDependency(db: db, jwtService: jwtService, hasher: hasher, logger: dbLogger);
   authRoutes.register(router);
 
-  // ============ DOCS ============
+  // ================= PROTECTED ROUTES =================
+
+  /// 🔐 /me → qualquer usuário autenticado
+  router.get(
+    '/me',
+    chain([jwtMiddleware(jwtService), requireAuth()], (ctx) async {
+      final auth = ctx.auth;
+
+      sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Usuário autenticado', data: {'user_id': auth?.userId, 'org_id': auth?.orgId, 'roles': auth?.roles}));
+    }),
+  );
+
+  /// 🔐 /admin → apenas admin
+  router.group('/admin', (r) {
+    r.post('/stats', (ctx) async {
+      sendJson(ctx, HttpStatus.ok, {'ok': true});
+    });
+  }, middlewares: [jwtMiddleware(jwtService), requireAuth(), requireRole('admin')]);
+
+  // ================= DOCS =================
   router.get('/openapi.json', (ctx) async {
     ctx.response
       ..statusCode = HttpStatus.ok
@@ -51,14 +68,13 @@ Future<void> startServer({int port = 8080}) async {
   router.get('/docs', _swaggerHandler);
   router.get('/docs/:rest', _swaggerHandler);
 
-  // ============ HEALTH ============
+  // ================= HEALTH =================
   router.get('/health', (ctx) async {
     sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'ok', data: {'uptime': DateTime.now().toIso8601String()}));
   });
 
-  // ============ START ============
+  // ================= START =================
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-
   print('🚀 HTTP server ouvindo em http://localhost:$port');
 
   await for (final req in server) {
@@ -66,9 +82,32 @@ Future<void> startServer({int port = 8080}) async {
   }
 }
 
-// ================== SWAGGER HANDLER ==================
+// ================= SWAGGER HANDLER =================
 Future<void> _swaggerHandler(HttpContext ctx) async {
   final shelfReq = await httpToShelfRequest(ctx.request);
   final shelfRes = await SwaggerHandler.handler(shelfReq);
   await sendShelfResponse(ctx.response, shelfRes);
+}
+
+class MeController {
+  Future<void> me(HttpContext ctx) async {
+    final auth = ctx.auth!;
+
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Usuário autenticado', data: {'user_id': auth.userId, 'org_id': auth.orgId, 'roles': auth.roles}));
+  }
+}
+
+class MeRoutes {
+  final MeController controller;
+
+  MeRoutes(this.controller);
+
+  void register(Router router) {
+    router.get(
+      '/me',
+      chain([
+        requireAuth(), // 🔐 só entra se tiver JWT válido
+      ], controller.me),
+    );
+  }
 }

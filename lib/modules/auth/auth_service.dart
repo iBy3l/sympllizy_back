@@ -6,6 +6,9 @@ import 'auth_repository.dart';
 abstract class AuthService {
   Future<AuthEntity> signup({required String orgName, required String email, required String password, String? fullName});
   Future<Map<String, dynamic>> login({required String email, required String password});
+  Future<Map<String, dynamic>> refresh(String refreshToken);
+  Future<void> logout(String refreshToken);
+  Future<void> logoutAll({required String userId});
 }
 
 class AuthServiceImpl implements AuthService {
@@ -13,8 +16,9 @@ class AuthServiceImpl implements AuthService {
   final AuthRepository _repo;
   final JwtService _jwt;
   final PasswordHasher _hasher;
+  final Logger _logger;
 
-  AuthServiceImpl(this._repo, this._db, this._jwt, this._hasher);
+  AuthServiceImpl(this._repo, this._db, this._jwt, this._hasher, this._logger);
 
   String _slugify(String value) {
     final lower = value.trim().toLowerCase();
@@ -78,29 +82,25 @@ class AuthServiceImpl implements AuthService {
   @override
   Future<Map<String, dynamic>> login({required String email, required String password}) async {
     final user = await _repo.findUserByEmail(email);
-
     if (user == null) {
       throw UnauthorizedException('Credenciais inválidas');
     }
 
-    final passwordHash = user['password_hash'] as String;
-    final isValid = _hasher.verify(password, passwordHash);
-
+    final isValid = _hasher.verify(password, user['password_hash']);
     if (!isValid) {
       throw UnauthorizedException('Credenciais inválidas');
     }
 
     final userId = user['id'].toString();
-
-    // Busca org principal
     final org = await _repo.findPrimaryOrgByUser(userId);
     final orgId = org['id'].toString();
-
     final roles = await _repo.findUserRoles(userId, orgId);
 
     final tokens = _jwt.generateTokens(userId: userId, orgId: orgId, roles: roles);
 
-    await _repo.saveRefreshToken(_db, userId: userId, token: tokens.refreshToken, expiresAt: DateTime.fromMillisecondsSinceEpoch(tokens.refreshExpiresAt * 1000, isUtc: true));
+    await _db.transaction((tx) async {
+      await _repo.saveRefreshToken(tx, userId: userId, token: tokens.refreshToken, expiresAt: DateTime.fromMillisecondsSinceEpoch(tokens.refreshExpiresAt * 1000, isUtc: true));
+    });
 
     return {
       'access_token': tokens.accessToken,
@@ -110,5 +110,69 @@ class AuthServiceImpl implements AuthService {
       'user': {'id': userId, 'email': email, 'roles': roles},
       'org': {'id': orgId, 'name': org['name'], 'slug': org['slug']},
     };
+  }
+
+  @override
+  Future<Map<String, dynamic>> refresh(String refreshToken) async {
+    // 1️⃣ Verifica JWT
+    final jwt = _jwt.verifyRefreshToken(refreshToken);
+
+    final userId = _jwt.getUserId(jwt);
+    final orgId = _jwt.getOrgId(jwt);
+
+    if (userId.isEmpty || orgId.isEmpty) {
+      throw UnauthorizedException('Token inválido');
+    }
+
+    // 2️⃣ Transação REAL
+    return await _db.transaction((tx) async {
+      final exists = await _repo.findRefreshToken(tx, userId: userId, token: refreshToken);
+
+      if (!exists) {
+        throw UnauthorizedException('Refresh token inválido ou revogado');
+      }
+
+      // 3️⃣ Gera novos tokens
+      final tokens = _jwt.generateTokens(userId: userId, orgId: orgId, roles: const []);
+
+      // 4️⃣ Revoga o antigo
+      await _repo.revokeRefreshToken(tx, refreshToken);
+
+      // 5️⃣ Salva o novo
+      await _repo.saveRefreshToken(tx, userId: userId, token: tokens.refreshToken, expiresAt: DateTime.fromMillisecondsSinceEpoch(tokens.refreshExpiresAt * 1000, isUtc: true));
+
+      return {'access_token': tokens.accessToken, 'refresh_token': tokens.refreshToken, 'access_expires_at': tokens.accessExpiresAt, 'refresh_expires_at': tokens.refreshExpiresAt};
+    });
+  }
+
+  @override
+  Future<void> logout(String refreshToken) async {
+    // 1️⃣ Verifica JWT
+    final jwt = _jwt.verifyRefreshToken(refreshToken);
+
+    final userId = _jwt.getUserId(jwt);
+    if (userId.isEmpty) {
+      throw UnauthorizedException('Token inválido');
+    }
+
+    // 2️⃣ Revoga dentro de transação
+    await _db.transaction((tx) async {
+      final exists = await _repo.findRefreshToken(tx, userId: userId, token: refreshToken);
+
+      if (!exists) {
+        throw UnauthorizedException('Refresh token inválido ou já revogado');
+      }
+
+      await _repo.revokeRefreshToken(tx, refreshToken);
+    });
+  }
+
+  @override
+  Future<void> logoutAll({required String userId}) async {
+    await _db.transaction((tx) async {
+      _logger.info('auth.logout.global', 'Logout global realizado', context: {'user_id': userId});
+
+      await _repo.revokeAllRefreshTokens(tx, userId);
+    });
   }
 }

@@ -6,6 +6,25 @@ typedef Handler = Future<void> Function(HttpContext ctx);
 typedef Middleware = Future<void> Function(HttpContext ctx, Future<void> Function() next);
 typedef ErrorHandler = Future<void> Function(Object error, StackTrace stack, HttpContext ctx);
 
+/// Encadeia middlewares + handler final.
+/// Uso: router.post('/x', chain([mw1, mw2], (ctx) async { ... }));
+Handler chain(List<Middleware> middlewares, Handler handler) {
+  return (ctx) async {
+    var i = -1;
+
+    Future<void> run() async {
+      i++;
+      if (i < middlewares.length) {
+        await middlewares[i](ctx, run);
+      } else {
+        await handler(ctx);
+      }
+    }
+
+    await run();
+  };
+}
+
 class _RouteEntry {
   final String method;
   final String path;

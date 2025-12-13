@@ -4,8 +4,9 @@ import 'auth_controller.dart';
 
 class AuthRoutes {
   final AuthController controller;
+  final JwtService jwtService;
 
-  AuthRoutes(this.controller);
+  AuthRoutes(this.controller, this.jwtService);
 
   void register(Router router) {
     // =======================
@@ -14,6 +15,8 @@ class AuthRoutes {
     router.group('/auth', (r) {
       r.post('/signup', controller.signup);
       r.post('/login', controller.login);
+      r.post('/refresh', controller.refresh);
+      r.post('/logout', chain([jwtMiddleware(jwtService), requireAuth()], controller.logout));
     });
 
     // =======================
@@ -21,6 +24,48 @@ class AuthRoutes {
     // =======================
     _registerSignupSwagger();
     _registerLoginSwagger();
+    _registerRefreshSwagger();
+    _registerLogoutSwagger();
+  }
+
+  void _registerLogoutSwagger() {
+    OpenApi.addOperation(
+      method: 'post',
+      path: '/auth/logout',
+      operation: OpenApiOperation(
+        summary: 'Logout',
+        description: 'Revoga o refresh token atual',
+        requestBody: OpenApiRequestBody(
+          required: true,
+          content: {
+            'application/json': {
+              'schema': {
+                'type': 'object',
+                'required': ['refresh_token'],
+                'properties': {
+                  'refresh_token': {'type': 'string', 'example': 'jwt_refresh_here'},
+                },
+              },
+            },
+          },
+        ),
+        security: [
+          {'bearerAuth': []},
+        ],
+        responses: {
+          '200': {
+            'description': 'Logout realizado com sucesso',
+            'content': {
+              'application/json': {
+                'example': {'success': true, 'message': 'Logout realizado com sucesso', 'data': null},
+              },
+            },
+          },
+          '401': {'description': 'Token inválido ou revogado'},
+          '400': {'description': 'Erro de validação'},
+        },
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -148,6 +193,36 @@ class AuthRoutes {
             },
           },
           '400': {'description': 'Erro de validação'},
+          '500': {'description': 'Erro interno do servidor'},
+        },
+      ),
+    );
+  }
+
+  void _registerRefreshSwagger() {
+    OpenApi.addOperation(
+      method: 'post',
+      path: '/auth/refresh',
+      operation: OpenApiOperation(
+        summary: 'Renovar token de acesso',
+        description: 'Gera um novo access_token e refresh_token a partir de um refresh token válido.',
+        requestBody: OpenApiRequestBody(
+          required: true,
+          content: {
+            'application/json': {
+              'schema': {
+                'type': 'object',
+                'required': ['refresh_token'],
+                'properties': {
+                  'refresh_token': {'type': 'string', 'example': 'jwt_refresh_here'},
+                },
+              },
+            },
+          },
+        ),
+        responses: {
+          '200': {'description': 'Token renovado com sucesso'},
+          '401': {'description': 'Refresh token inválido ou expirado'},
           '500': {'description': 'Erro interno do servidor'},
         },
       ),

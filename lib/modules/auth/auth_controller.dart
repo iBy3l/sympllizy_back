@@ -54,4 +54,25 @@ class AuthController {
 
     sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Login realizado com sucesso', data: result));
   }
+
+  Future<void> refresh(HttpContext ctx) async {
+    final body = await readJson(ctx.request);
+
+    final refreshToken = body['refresh_token'] as String?;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw ValidationException('Refresh token é obrigatório', details: {'refresh_token': 'obrigatório'});
+    }
+
+    final result = await _service.refresh(refreshToken);
+
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Token renovado com sucesso', data: result));
+  }
+
+  Future<void> logout(HttpContext ctx) async {
+    final auth = ctx.auth; // já garantido pelo middleware
+
+    await _service.logoutAll(userId: auth?.userId ?? '');
+
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Logout realizado com sucesso', data: null));
+  }
 }

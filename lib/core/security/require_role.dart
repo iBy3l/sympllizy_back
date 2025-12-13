@@ -1,17 +1,17 @@
 import 'package:sympllizy_back/core/core.dart';
 
-Middleware requireRole(List<String> allowedRoles) {
-  return (HttpContext ctx, Future<void> Function() next) async {
-    final roles = ctx.locals['roles'];
+import '../http/http_context_auth.dart';
 
-    if (roles == null || roles is! List<String>) {
-      throw ForbiddenException('Permissões não encontradas');
+Middleware requireRole(String role) {
+  return (ctx, next) async {
+    final auth = ctx.auth;
+
+    if (auth == null) {
+      throw UnauthorizedException('Autenticação necessária');
     }
 
-    final hasPermission = roles.any(allowedRoles.contains);
-
-    if (!hasPermission) {
-      throw ForbiddenException('Acesso negado', details: {'required_roles': allowedRoles, 'user_roles': roles});
+    if (!auth.roles.contains(role)) {
+      throw ForbiddenException('Permissão insuficiente');
     }
 
     await next();

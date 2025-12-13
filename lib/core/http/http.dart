@@ -1,6 +1,7 @@
 export 'api_response.dart';
 export 'context.dart';
 export 'http_body.dart';
+export 'http_context_auth.dart';
 export 'http_to_shelf.dart';
 export 'request_utils.dart';
 export 'response_utils.dart';

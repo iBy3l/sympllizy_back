@@ -13,10 +13,16 @@ abstract class AuthRepository {
 
   Future<Map<String, dynamic>> createDefaultCompany(DatabaseConnection db, String orgId);
 
-  Future<void> saveRefreshToken(DatabaseConnection db, {required String userId, required String token, required DateTime expiresAt});
-
   Future<Map<String, dynamic>> findPrimaryOrgByUser(String userId);
   Future<List<String>> findUserRoles(String userId, String orgId);
+
+  Future<bool> findRefreshToken(DatabaseConnection tx, {required String userId, required String token});
+
+  Future<void> revokeRefreshToken(DatabaseConnection tx, String token);
+
+  Future<void> saveRefreshToken(DatabaseConnection tx, {required String userId, required String token, required DateTime expiresAt});
+
+  Future<void> revokeAllRefreshTokens(DatabaseConnection tx, String userId);
 }
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -74,6 +80,33 @@ class AuthRepositoryImpl implements AuthRepository {
   WHERE user_id = \$1 AND org_id = \$2
 ''';
 
+  static const String selectRefreshToken = '''
+SELECT 1
+FROM auth.refresh_tokens
+WHERE user_id = \$1
+  AND token = \$2
+  AND revoked_at IS NULL
+  AND expires_at > NOW()
+LIMIT 1
+''';
+
+  static const String revokeRefreshTokenSql = '''
+UPDATE auth.refresh_tokens
+SET revoked_at = NOW()
+WHERE token = \$1
+''';
+  static const String revokeAllRefreshTokensSql = '''
+UPDATE auth.refresh_tokens
+SET revoked_at = NOW()
+WHERE user_id = \$1
+  AND revoked_at IS NULL
+''';
+
+  @override
+  Future<void> revokeAllRefreshTokens(DatabaseConnection tx, String userId) async {
+    await tx.execute(revokeAllRefreshTokensSql, [userId]);
+  }
+
   @override
   Future<Map<String, dynamic>?> findUserByEmail(String email) async {
     final result = await _db.query(selectUserByEmail, [email]);
@@ -110,11 +143,6 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> saveRefreshToken(DatabaseConnection db, {required String userId, required String token, required DateTime expiresAt}) async {
-    await db.execute(insertRefreshToken, [userId, token, expiresAt.toUtc()]);
-  }
-
-  @override
   Future<Map<String, dynamic>> findPrimaryOrgByUser(String userId) async {
     final rows = await _db.query(selectPrimaryOrg, [userId]);
     if (rows.isEmpty) {
@@ -127,5 +155,22 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<List<String>> findUserRoles(String userId, String orgId) async {
     final rows = await _db.query(selectRoles, [userId, orgId]);
     return rows.map((e) => e['role'].toString()).toList();
+  }
+
+  @override
+  Future<bool> findRefreshToken(DatabaseConnection tx, {required String userId, required String token}) async {
+    final rows = await tx.query(selectRefreshToken, [userId, token]);
+
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<void> revokeRefreshToken(DatabaseConnection tx, String token) async {
+    await tx.execute(revokeRefreshTokenSql, [token]);
+  }
+
+  @override
+  Future<void> saveRefreshToken(DatabaseConnection tx, {required String userId, required String token, required DateTime expiresAt}) async {
+    await tx.execute(insertRefreshToken, [userId, token, expiresAt.toUtc()]);
   }
 }
