@@ -1,25 +1,26 @@
 import 'openapi.dart';
 
 void bootstrapOpenApi() {
-  // ===== SERVERS =====
-  OpenApi.addServer(url: 'http://localhost:8080', description: 'Local');
+  // -------- SERVERS --------
+  OpenApi.addServer(url: 'http://localhost:8080', description: 'Ambiente local');
 
-  // ===== TAGS =====
+  // -------- TAGS --------
   OpenApi.addTag(name: 'Auth', description: 'Autenticação e sessão');
   OpenApi.addTag(name: 'Users', description: 'Usuário autenticado');
   OpenApi.addTag(name: 'Admin', description: 'Administração');
   OpenApi.addTag(name: 'System', description: 'Sistema');
 
-  // ===== SECURITY =====
+  // -------- SECURITY --------
   OpenApi.addSecurityScheme('BearerAuth', {'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT'});
 
   OpenApi.setGlobalSecurity([
     {'BearerAuth': []},
   ]);
 
-  // ===== SCHEMAS BASE =====
+  // -------- SCHEMAS BASE --------
   OpenApi.addSchema('ApiResponse', {
     'type': 'object',
+    'required': ['success', 'message'],
     'properties': {
       'success': {'type': 'boolean'},
       'message': {'type': 'string'},
@@ -27,34 +28,18 @@ void bootstrapOpenApi() {
     },
   });
 
-  OpenApi.addSchema('Tokens', {
+  OpenApi.addSchema('ErrorResponse', {
     'type': 'object',
+    'required': ['success', 'message', 'code'],
     'properties': {
-      'access_token': {'type': 'string'},
-      'refresh_token': {'type': 'string'},
-      'access_expires_at': {'type': 'integer'},
-      'refresh_expires_at': {'type': 'integer'},
-    },
-  });
-
-  OpenApi.addSchema('User', {
-    'type': 'object',
-    'properties': {
-      'id': {'type': 'string', 'format': 'uuid'},
-      'email': {'type': 'string'},
-      'roles': {
-        'type': 'array',
-        'items': {'type': 'string'},
+      'success': {'type': 'boolean', 'example': false},
+      'message': {'type': 'string', 'example': 'Token inválido ou expirado'},
+      'code': {'type': 'string', 'example': 'UNAUTHORIZED'},
+      'data': {
+        'nullable': true,
+        'description': 'Detalhes adicionais do erro (opcional)',
+        'example': {'field': 'email'},
       },
-    },
-  });
-
-  OpenApi.addSchema('Org', {
-    'type': 'object',
-    'properties': {
-      'id': {'type': 'string', 'format': 'uuid'},
-      'name': {'type': 'string'},
-      'slug': {'type': 'string'},
     },
   });
 }

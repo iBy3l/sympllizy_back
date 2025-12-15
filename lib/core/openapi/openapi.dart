@@ -11,14 +11,14 @@ class OpenApiOperation {
   OpenApiOperation({required this.summary, this.description, this.tags, this.requestBody, required this.responses, this.security});
 
   Map<String, dynamic> toJson() {
-    final map = <String, dynamic>{'summary': summary, 'responses': responses};
-
-    if (description != null) map['description'] = description;
-    if (tags != null) map['tags'] = tags;
-    if (requestBody != null) map['requestBody'] = requestBody!.toJson();
-    if (security != null) map['security'] = security;
-
-    return map;
+    return {
+      'summary': summary,
+      if (description != null) 'description': description,
+      if (tags != null) 'tags': tags,
+      if (requestBody != null) 'requestBody': requestBody!.toJson(),
+      'responses': responses,
+      if (security != null) 'security': security,
+    };
   }
 }
 
@@ -28,9 +28,7 @@ class OpenApiRequestBody {
 
   OpenApiRequestBody({this.required = false, required this.content});
 
-  Map<String, dynamic> toJson() {
-    return {'required': required, 'content': content};
-  }
+  Map<String, dynamic> toJson() => {'required': required, 'content': content};
 }
 
 class OpenApi {
@@ -41,22 +39,22 @@ class OpenApi {
   static final List<Map<String, dynamic>> _servers = [];
   static List<Map<String, List<String>>> _globalSecurity = [];
 
-  // ================= TAGS =================
-  static void addTag({required String name, String? description}) {
-    _tags.add({'name': name, if (description != null) 'description': description});
-  }
-
-  // ================= SERVERS =================
+  // ---------------- SERVERS ----------------
   static void addServer({required String url, String? description}) {
     _servers.add({'url': url, if (description != null) 'description': description});
   }
 
-  // ================= SCHEMAS =================
+  // ---------------- TAGS ----------------
+  static void addTag({required String name, String? description}) {
+    _tags.add({'name': name, if (description != null) 'description': description});
+  }
+
+  // ---------------- SCHEMAS ----------------
   static void addSchema(String name, Map<String, dynamic> schema) {
     _schemas[name] = schema;
   }
 
-  // ================= SECURITY =================
+  // ---------------- SECURITY ----------------
   static void addSecurityScheme(String name, Map<String, dynamic> scheme) {
     _securitySchemes[name] = scheme;
   }
@@ -65,7 +63,7 @@ class OpenApi {
     _globalSecurity = security;
   }
 
-  // ================= PATHS =================
+  // ---------------- PATHS ----------------
   static void addOperation({required String method, required String path, required OpenApiOperation operation}) {
     final normalizedPath = path.startsWith('/') ? path : '/$path';
     final lowerMethod = method.toLowerCase();
@@ -74,22 +72,16 @@ class OpenApi {
     _paths[normalizedPath][lowerMethod] = operation.toJson();
   }
 
-  // ================= FINAL JSON =================
+  // ---------------- JSON FINAL ----------------
   static String json() {
-    final doc = <String, dynamic>{
+    return jsonEncode({
       'openapi': '3.0.0',
       'info': {'title': 'Sympllizy API', 'version': '1.0.0', 'description': 'API oficial da plataforma Sympllizy'},
-      'servers': _servers,
-      'tags': _tags,
+      if (_servers.isNotEmpty) 'servers': _servers,
+      if (_tags.isNotEmpty) 'tags': _tags,
       'paths': _paths,
       'components': {if (_schemas.isNotEmpty) 'schemas': _schemas, if (_securitySchemes.isNotEmpty) 'securitySchemes': _securitySchemes},
       if (_globalSecurity.isNotEmpty) 'security': _globalSecurity,
-    };
-
-    return jsonEncode(doc);
+    });
   }
-}
-
-void registerOpenApiSecurity() {
-  OpenApi.addSecurityScheme('BearerAuth', {'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT', 'description': 'Informe o token no formato: Bearer {token}'});
 }

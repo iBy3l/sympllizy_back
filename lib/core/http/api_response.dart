@@ -3,7 +3,7 @@ class ApiResponse {
     return {'success': true, 'message': message, 'data': data};
   }
 
-  static Map<String, dynamic> error({String message = 'Erro', dynamic data}) {
-    return {'success': false, 'message': message, 'data': data};
+  static Map<String, dynamic> error({required String message, String? code, dynamic data}) {
+    return {'success': false, 'message': message, if (code != null) 'code': code, 'data': data};
   }
 }

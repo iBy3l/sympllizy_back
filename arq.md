@@ -1,4 +1,3 @@
-.
 ├── analysis_options.yaml
 ├── app.md
 ├── arq.md
@@ -23,17 +22,19 @@
 │   │   ├── env
 │   │   │   └── env.dart
 │   │   ├── errors
-│   │   │   ├── auth_exception.dart
-│   │   │   ├── base_exception.dart
+│   │   │   ├── app_exception.dart
+│   │   │   ├── conflict_exception.dart
+│   │   │   ├── error_code.dart
 │   │   │   ├── erros.dart
 │   │   │   ├── forbidden_exception.dart
 │   │   │   ├── not_found_exception.dart
-│   │   │   ├── server_exception.dart
 │   │   │   ├── unauthorized_exception.dart
 │   │   │   └── validation_exception.dart
 │   │   ├── http
 │   │   │   ├── api_response.dart
 │   │   │   ├── context.dart
+│   │   │   ├── http_body.dart
+│   │   │   ├── http_context_auth.dart
 │   │   │   ├── http_to_shelf.dart
 │   │   │   ├── http.dart
 │   │   │   ├── request_utils.dart
@@ -52,25 +53,32 @@
 │   │   │   ├── auth_middleware.dart
 │   │   │   ├── cors_middleware.dart
 │   │   │   ├── error_middleware.dart
-│   │   │   ├── jwt_middleware.dart
+│   │   │   ├── logger_context_middleware.dart
 │   │   │   ├── logging_middleware.dart
 │   │   │   ├── middleware.dart
 │   │   │   ├── org_context_middleware.dart
-│   │   │   └── require_role.dart
+│   │   │   ├── require_any_role.dart
+│   │   │   └── require_auth.dart
 │   │   ├── openapi
-│   │   │   ├── openapi.dart
-│   │   │   └── openapi.yaml
+│   │   │   ├── openapi_bootstrap.dart
+│   │   │   └── openapi.dart
 │   │   ├── routes
 │   │   │   ├── routes.dart
 │   │   │   └── test_route.dart
 │   │   ├── security
+│   │   │   ├── auth_payload.dart
+│   │   │   ├── jwt_middleware.dart
 │   │   │   ├── jwt_service.dart
 │   │   │   ├── password_hash.dart
+│   │   │   ├── require_role.dart
 │   │   │   ├── security.dart
 │   │   │   └── token_pair.dart
-│   │   └── swagger
-│   │       ├── openapi_spec.dart
-│   │       └── swagger_handler.dart
+│   │   ├── swagger
+│   │   │   ├── openapi_spec.dart
+│   │   │   ├── swagger_handler.dart
+│   │   │   └── swagger.dart
+│   │   └── utils
+│   │       └── utils.dart
 │   ├── modules
 │   │   ├── auth
 │   │   │   ├── auth_controller.dart
@@ -82,6 +90,7 @@
 │   │   │   ├── auth_service.dart
 │   │   │   ├── auth.dart
 │   │   │   └── signup_request.dart
+│   │   ├── module_dependecy.dart
 │   │   └── modules.dart
 │   └── server
 │       └── server.dart
@@ -91,6 +100,9 @@
 └── test
     └── server_test.dart
 
+
+
+├── core
 ├── config
 ├── app_config.dart:
 import 'package:sympllizy_back/core/config/environment.dart';
@@ -120,7 +132,13 @@ class AppConfig {
   static bool get isProd => environment == Environment.prod;
 }
 
-── environment.dart:
+
+├── config.dart:
+
+export 'app_config.dart';
+export 'environment.dart';
+
+└── environment.dart:
 enum Environment {
   dev,
   staging,
@@ -145,6 +163,22 @@ enum Environment {
     }
   }
 }
+
+
+├── core.dart:
+export 'config/config.dart';
+export 'database/database.dart';
+export 'errors/erros.dart';
+export 'http/http.dart';
+export 'logging/logging.dart';
+export 'middleware/middleware.dart';
+export 'openapi/openapi.dart';
+export 'routes/routes.dart';
+export 'security/security.dart';
+export 'swagger/swagger.dart';
+export 'utils/utils.dart';
+
+
 ├── database
 ├── database_connection.dart:
 abstract class DatabaseConnection {
@@ -154,10 +188,16 @@ abstract class DatabaseConnection {
 
   Future<int> execute(String sql, [List<dynamic>? params]);
 
-  /// Executa uma transação e entrega uma conexão transacional (tx)
   Future<T> transaction<T>(Future<T> Function(DatabaseConnection tx) action);
 }
 
+
+
+├── database.dart:
+
+export 'database_connection.dart';
+export 'db.dart';
+export 'postgres_connection.dart';
 
 ├── db.dart:
 import 'package:sympllizy_back/core/database/database_connection.dart';
@@ -173,6 +213,7 @@ class DB {
 
   static DatabaseConnection get instance => _instance;
 }
+
 
 └── postgres_connection.dart:
 import 'package:postgres/postgres.dart';
@@ -261,6 +302,7 @@ class _TxPostgresConnection extends DatabaseConnection {
   }
 }
 
+
 ├── env
 └── env.dart:
 import 'dart:io';
@@ -309,71 +351,108 @@ class Env {
   }
 }
 
+
 ├── errors
-├── unauthorized_exception.dart:
-import 'base_exception.dart';
+├── app_exception.dart:
 
-class UnauthorizedException extends BaseException {
-  UnauthorizedException(super.message, {String? code, super.details}) : super(code: code ?? 'unauthorized', statusCode: 401);
-}
+import 'package:sympllizy_back/core/errors/error_code.dart';
 
-├── auth_exception.dart:
-import 'base_exception.dart';
-
-class AuthException extends BaseException {
-  AuthException(super.message, {String? code, super.details}) : super(code: code ?? 'auth_error', statusCode: 401);
-}
-
-├── base_exception.dart:
-class BaseException implements Exception {
+abstract class AppException implements Exception {
+  final ErrorCode code;
   final String message;
-  final int statusCode;
-  final String? code;
   final Map<String, dynamic>? details;
 
-  BaseException(this.message, {this.statusCode = 400, this.code, this.details});
+  AppException(this.code, this.message, {this.details});
 
   @override
-  String toString() => 'BaseException($statusCode, $code, $message)';
+  String toString() => 'AppException(${errorCodeToString(code)}): $message';
 }
 
-├── forbidden_exception.dart:
-import 'base_exception.dart';
+├── conflict_exception.dart:
 
-class ForbiddenException extends BaseException {
-  ForbiddenException(super.message, {String? code, super.details}) : super(code: code ?? 'forbidden', statusCode: 403);
+import 'app_exception.dart';
+import 'error_code.dart';
+
+class ConflictException extends AppException {
+  ConflictException(String message) : super(ErrorCode.conflict, message);
+}
+
+├── error_code.dart:
+
+enum ErrorCode { validationError, unauthorized, forbidden, notFound, conflict, internalError }
+
+String errorCodeToString(ErrorCode code) {
+  switch (code) {
+    case ErrorCode.validationError:
+      return 'VALIDATION_ERROR';
+    case ErrorCode.unauthorized:
+      return 'UNAUTHORIZED';
+    case ErrorCode.forbidden:
+      return 'FORBIDDEN';
+    case ErrorCode.notFound:
+      return 'NOT_FOUND';
+    case ErrorCode.conflict:
+      return 'CONFLICT';
+    case ErrorCode.internalError:
+      return 'INTERNAL_ERROR';
+  }
+}
+
+├── erros.dart:
+export 'app_exception.dart';
+export 'error_code.dart';
+export 'forbidden_exception.dart';
+export 'not_found_exception.dart';
+export 'unauthorized_exception.dart';
+export 'validation_exception.dart';
+
+
+├── forbidden_exception.dart:
+
+import 'app_exception.dart';
+import 'error_code.dart';
+
+class ForbiddenException extends AppException {
+  ForbiddenException(String message) : super(ErrorCode.forbidden, message);
 }
 
 ├── not_found_exception.dart:
-import 'base_exception.dart';
+import 'app_exception.dart';
+import 'error_code.dart';
 
-class NotFoundException extends BaseException {
-  NotFoundException(super.message, {String? code, super.details}) : super(code: code ?? 'not_found', statusCode: 404);
+class NotFoundException extends AppException {
+  NotFoundException(String message) : super(ErrorCode.notFound, message);
 }
 
-├── server_exception.dart:
-import 'base_exception.dart';
 
-class ServerException extends BaseException {
-  ServerException(super.message, {String? code, super.details}) : super(code: code ?? 'server_error', statusCode: 500);
+├── unauthorized_exception.dart:
+import 'package:sympllizy_back/core/errors/app_exception.dart';
+import 'package:sympllizy_back/core/errors/error_code.dart';
+
+class UnauthorizedException extends AppException {
+  UnauthorizedException(String message) : super(ErrorCode.unauthorized, message);
 }
+
 
 └── validation_exception.dart:
-import 'base_exception.dart';
+import 'app_exception.dart';
+import 'error_code.dart';
 
-class ValidationException extends BaseException {
-  ValidationException(super.message, {super.details, String? code}) : super(code: code ?? 'validation_error', statusCode: 400);
+class ValidationException extends AppException {
+  ValidationException(String message, {Map<String, dynamic>? details}) : super(ErrorCode.validationError, message, details: details);
 }
+
 
 ├── http
 ├── api_response.dart:
+
 class ApiResponse {
   static Map<String, dynamic> success({String message = 'OK', dynamic data}) {
     return {'success': true, 'message': message, 'data': data};
   }
 
-  static Map<String, dynamic> error({String message = 'Erro', dynamic data}) {
-    return {'success': false, 'message': message, 'data': data};
+  static Map<String, dynamic> error({required String message, String? code, dynamic data}) {
+    return {'success': false, 'message': message, if (code != null) 'code': code, 'data': data};
   }
 }
 
@@ -416,6 +495,64 @@ class HttpContext {
 }
 
 
+├── http_body.dart:
+import 'dart:convert';
+import 'dart:io';
+
+import '../errors/erros.dart';
+
+Future<Map<String, dynamic>> readJson(HttpRequest request) async {
+  try {
+    final content = await utf8.decoder.bind(request).join();
+
+    if (content.isEmpty) {
+      return {};
+    }
+
+    final decoded = jsonDecode(content);
+
+    if (decoded is! Map<String, dynamic>) {
+      throw ValidationException('Payload inválido');
+    }
+
+    return decoded;
+  } on FormatException {
+    throw ValidationException('JSON inválido');
+  }
+}
+
+
+├── http_context_auth.dart:
+import 'package:sympllizy_back/core/errors/unauthorized_exception.dart';
+
+import 'context.dart';
+
+class AuthContext {
+  final String userId;
+  final String orgId;
+  final List<String> roles;
+
+  AuthContext({required this.userId, required this.orgId, required this.roles});
+}
+
+extension HttpContextAuth on HttpContext {
+  static const _key = '_auth';
+
+  AuthContext get auth {
+    final value = items[_key];
+    if (value is! AuthContext) {
+      throw UnauthorizedException('Usuário não autenticado');
+    }
+    return value;
+  }
+
+  bool get isAuthenticated => items.containsKey(_key);
+
+  void setAuth(AuthContext auth) {
+    items[_key] = auth;
+  }
+}
+
 
 ├── http_to_shelf.dart:
 import 'dart:async';
@@ -433,6 +570,19 @@ Future<Request> httpToShelfRequest(HttpRequest req) async {
 
   return Request(req.method, req.requestedUri, protocolVersion: req.protocolVersion, headers: headers, body: Stream.fromIterable([bodyBytes]));
 }
+
+
+├── http.dart:
+
+export 'api_response.dart';
+export 'context.dart';
+export 'http_body.dart';
+export 'http_context_auth.dart';
+export 'http_to_shelf.dart';
+export 'request_utils.dart';
+export 'response_utils.dart';
+export 'router.dart';
+export 'shelf_to_http.dart';
 
 ├── request_utils.dart:
 import 'dart:convert';
@@ -454,6 +604,7 @@ Future<Map<String, dynamic>> readJsonBody(HttpContext ctx) async {
   throw ValidationException('JSON inválido. Esperado objeto.');
 }
 
+
 ├── response_utils.dart:
 import 'dart:convert';
 import 'dart:io';
@@ -468,7 +619,9 @@ Future<void> sendJson(HttpContext ctx, int status, Map<String, dynamic> body) as
   await ctx.response.close();
 }
 
+
 ├── router.dart:
+
 import 'dart:io';
 
 import 'context.dart';
@@ -476,6 +629,25 @@ import 'context.dart';
 typedef Handler = Future<void> Function(HttpContext ctx);
 typedef Middleware = Future<void> Function(HttpContext ctx, Future<void> Function() next);
 typedef ErrorHandler = Future<void> Function(Object error, StackTrace stack, HttpContext ctx);
+
+/// Encadeia middlewares + handler final.
+/// Uso: router.post('/x', chain([mw1, mw2], (ctx) async { ... }));
+Handler chain(List<Middleware> middlewares, Handler handler) {
+  return (ctx) async {
+    var i = -1;
+
+    Future<void> run() async {
+      i++;
+      if (i < middlewares.length) {
+        await middlewares[i](ctx, run);
+      } else {
+        await handler(ctx);
+      }
+    }
+
+    await run();
+  };
+}
 
 class _RouteEntry {
   final String method;
@@ -666,7 +838,6 @@ class _GroupedRouter extends Router {
   }
 }
 
-
 └── shelf_to_http.dart:
 import 'dart:io';
 
@@ -687,9 +858,9 @@ Future<void> sendShelfResponse(HttpResponse res, Response shelfRes) async {
   await res.close();
 }
 
+
 ├── logging
-│   ├── audit_logger.dart:
-import 'package:sympllizy_back/core/logging/logging.dart';
+├── audit_logger.dart:
 
 import '../core.dart';
 
@@ -712,51 +883,71 @@ class AuditLogger {
   }
 }
 
-│   ├── db_logger.dart:
+├── db_logger.dart:
+
+import 'dart:convert';
+
 import '../database/database_connection.dart';
 import 'log_entry.dart';
-import 'log_level.dart';
 import 'logger.dart';
 
-class DbLogger implements Logger {
+class DbLogger extends Logger {
   final DatabaseConnection db;
 
   DbLogger(this.db);
-
   @override
-  Future<void> log(LogEntry e) async {
+  Future<void> log(LogEntry entry) async {
     await db.execute(
       '''
       INSERT INTO data.logs (
-        level, type, message, context,
-        user_id, org_id,
-        method, path, status_code,
-        ip, user_agent
+        level,
+        type,
+        message,
+        context,
+        request_id,
+        method,
+        path,
+        status_code,
+        user_id,
+        org_id,
+        ip,
+        user_agent,
+        created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (
+        \$1, \$2, \$3, \$4,
+        \$5, \$6, \$7, \$8,
+        \$9, \$10, \$11, \$12,
+        NOW()
+      )
       ''',
-      [e.level.name, e.type, e.message, e.context, e.userId, e.orgId, e.method, e.path, e.statusCode, e.ip, e.userAgent],
+      [
+        entry.level.name,
+        entry.type,
+        entry.message,
+        entry.context != null ? jsonEncode(entry.context) : null,
+        entry.requestId,
+        entry.method,
+        entry.path,
+        entry.statusCode,
+        entry.userId,
+        entry.orgId,
+        entry.ip,
+        entry.userAgent,
+      ],
     );
-  }
-
-  @override
-  Future<void> info(String type, String message, {Map<String, dynamic>? ctx}) {
-    return log(LogEntry(level: LogLevel.info, type: type, message: message, context: ctx));
-  }
-
-  @override
-  Future<void> error(String type, String message, {Map<String, dynamic>? ctx}) {
-    return log(LogEntry(level: LogLevel.error, type: type, message: message, context: ctx));
   }
 }
 
-│   ├── log_entry.dart:
+├── log_entry.dart:
+
 import 'log_level.dart';
 
 class LogEntry {
   final LogLevel level;
   final String type;
   final String message;
+
   final Map<String, dynamic>? context;
 
   final String? userId;
@@ -769,24 +960,47 @@ class LogEntry {
   final String? ip;
   final String? userAgent;
 
-  LogEntry({required this.level, required this.type, required this.message, this.context, this.userId, this.orgId, this.method, this.path, this.statusCode, this.ip, this.userAgent});
+  final String? requestId;
+
+  LogEntry({required this.level, required this.type, required this.message, this.context, this.userId, this.orgId, this.method, this.path, this.statusCode, this.ip, this.userAgent, this.requestId});
 }
 
-│   ├── log_level.dart:
+├── log_level.dart:
+
 enum LogLevel { info, warn, error }
 
-│   ├── logger.dart:
+├── logger.dart:
+
 import 'package:sympllizy_back/core/logging/log_entry.dart';
+
+import 'log_level.dart';
 
 abstract class Logger {
   Future<void> log(LogEntry entry);
 
-  Future<void> info(String type, String message, {Map<String, dynamic>? ctx});
-  Future<void> error(String type, String message, {Map<String, dynamic>? ctx});
+  Future<void> info(String type, String message, {Map<String, dynamic>? context}) {
+    return log(LogEntry(level: LogLevel.info, type: type, message: message, context: context));
+  }
+
+  Future<void> error(String type, String message, {Map<String, dynamic>? context}) {
+    return log(LogEntry(level: LogLevel.error, type: type, message: message, context: context));
+  }
+
+  Future<void> warning(String type, String message, {Map<String, dynamic>? context}) {
+    return log(LogEntry(level: LogLevel.warn, type: type, message: message, context: context));
+  }
 }
 
+├── logging.dart:
+export 'audit_logger.dart';
+export 'db_logger.dart';
+export 'log_entry.dart';
+export 'log_level.dart';
+export 'logger.dart';
+export 'request_logger.dart';
 
-│   └── request_logger.dart:
+
+└── request_logger.dart:
 import 'package:sympllizy_back/core/core.dart';
 
 Middleware requestLogger(Logger logger) {
@@ -820,26 +1034,32 @@ Middleware requestLogger(Logger logger) {
 }
 
 
-
 ├── middleware
 ├── auth_middleware.dart:
-import '../errors/auth_exception.dart';
+import '../errors/unauthorized_exception.dart';
 import '../http/context.dart';
 
 Future<void> authMiddleware(HttpContext ctx, Future<void> Function() next) async {
   final header = ctx.header('authorization');
 
   if (header == null || !header.startsWith('Bearer ')) {
-    throw AuthException('Token não informado');
+    throw UnauthorizedException('Token não informado');
   }
 
   final token = header.substring(7).trim();
+
+  if (token.isEmpty) {
+    throw UnauthorizedException('Token inválido');
+  }
+
   ctx.locals['rawToken'] = token;
 
   await next();
 }
 
+
 ├── cors_middleware.dart:
+
 import 'dart:io';
 
 import '../http/context.dart';
@@ -861,21 +1081,51 @@ Future<void> corsMiddleware(HttpContext ctx, Future<void> Function() next) async
 }
 
 ├── error_middleware.dart:
+
 import 'dart:io';
 
 import 'package:sympllizy_back/core/http/response_utils.dart';
 import 'package:sympllizy_back/core/logging/logging.dart';
 
+import '../errors/erros.dart';
 import '../http/api_response.dart';
 import '../http/context.dart';
 
 Future<void> errorMiddleware(Object error, StackTrace stack, HttpContext ctx) async {
   final logger = ctx.locals['logger'] as Logger?;
 
+  // =========================
+  // ERRO ESPERADO (AppException)
+  // =========================
+  if (error is AppException) {
+    final status = statusFromError(error);
+
+    await logger?.log(
+      LogEntry(
+        level: LogLevel.warn,
+        type: errorCodeToString(error.code),
+        message: error.message,
+        context: error.details,
+        userId: ctx.locals['userId'],
+        orgId: ctx.locals['orgId'],
+        method: ctx.method,
+        path: ctx.path,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      ),
+    );
+
+    sendJson(ctx, status, ApiResponse.error(message: error.message, code: errorCodeToString(error.code), data: error.details));
+    return;
+  }
+
+  // =========================
+  // ERRO NÃO ESPERADO (BUG)
+  // =========================
   await logger?.log(
     LogEntry(
       level: LogLevel.error,
-      type: 'error',
+      type: 'INTERNAL_ERROR',
       message: error.toString(),
       context: {'stack': stack.toString()},
       userId: ctx.locals['userId'],
@@ -887,61 +1137,36 @@ Future<void> errorMiddleware(Object error, StackTrace stack, HttpContext ctx) as
     ),
   );
 
-  sendJson(ctx, HttpStatus.internalServerError, ApiResponse.error(message: 'Erro interno'));
+  sendJson(ctx, HttpStatus.internalServerError, ApiResponse.error(message: 'Erro interno do servidor', code: errorCodeToString(ErrorCode.internalError)));
 }
-lib/core/middleware/require_any_role.dart:
-import 'package:sympllizy_back/core/utils/is_authenticated.dart';
+
+int statusFromError(AppException e) {
+  switch (e.code) {
+    case ErrorCode.validationError:
+      return 422;
+    case ErrorCode.unauthorized:
+      return 401;
+    case ErrorCode.forbidden:
+      return 403;
+    case ErrorCode.notFound:
+      return 404;
+    case ErrorCode.conflict:
+      return 409;
+    case ErrorCode.internalError:
+      return 500;
+  }
+}
+
+├── logger_context_middleware.dart:
 
 import '../core.dart';
 
-Middleware requireAnyRole(List<String> roles) {
+Middleware loggerContextMiddleware(Logger logger) {
   return (ctx, next) async {
-    if (!ctx.isAuthenticated) {
-      throw UnauthorizedException('Autenticação necessária');
-    }
-
-    final hasPermission = ctx.roles.any(roles.contains);
-
-    if (!hasPermission) {
-      throw ForbiddenException('Permissão insuficiente');
-    }
-
+    ctx.locals['logger'] = logger;
     await next();
   };
 }
-
-lib/core/middleware/require_auth.dart:
-
-import 'package:sympllizy_back/core/http/http_context_auth.dart'; // 👈 ESSENCIAL
-
-import '../errors/erros.dart';
-import '../http/router.dart';
-
-Middleware requireAuth() {
-  return (ctx, next) async {
-    if (!ctx.isAuthenticated) {
-      throw UnauthorizedException('Autenticação necessária');
-    }
-    await next();
-  };
-}
-lib/core/utils/is_authenticated.dart:
-
-// lib/core/http/http_context_auth.dart
-import 'package:sympllizy_back/core/core.dart';
-import 'package:sympllizy_back/core/http/http_context_auth.dart';
-
-extension HttpContextAuth on HttpContext {
-  AuthContext? get auth => locals['auth'] as AuthContext?;
-
-  bool get isAuthenticated => auth != null;
-
-  String get userId => auth?.userId ?? '';
-  String get orgId => auth?.orgId ?? '';
-  List<String> get roles => auth?.roles ?? [];
-}
-
-
 
 ├── logging_middleware.dart:
 import '../http/context.dart';
@@ -961,104 +1186,20 @@ Future<void> loggingMiddleware(HttpContext ctx, Future<void> Function() next) as
     'duration=${duration.inMilliseconds}ms',
   );
 }
-lib/core/http/http_context_auth.dart:
-import 'package:sympllizy_back/core/errors/erros.dart';
-
-import 'context.dart';
-
-class AuthContext {
-  final String userId;
-  final String orgId;
-  final List<String> roles;
-
-  AuthContext({required this.userId, required this.orgId, required this.roles});
-}
-
-extension AuthContextExt on HttpContext {
-  static const _key = '_auth';
-
-  AuthContext get auth {
-    final value = items[_key];
-    if (value == null || value is! AuthContext) {
-      throw UnauthorizedException('Usuário não autenticado');
-    }
-    return value;
-  }
-
-  void setAuth(AuthContext auth) {
-    items[_key] = auth;
-  }
-
-  bool get isAuthenticated => items.containsKey(_key);
-}
 
 
-└── require_role.dart:
-import 'package:sympllizy_back/core/errors/forbidden_exception.dart';
-import 'package:sympllizy_back/core/http/router.dart';
-
-import '../core.dart';
-import '../http/http_context_auth.dart';
-
-Middleware requireRole(String role) {
-  return (ctx, next) async {
-    if (!ctx.isAuthenticated) {
-      throw UnauthorizedException('Autenticação necessária');
-    }
-
-    if (!ctx.auth.roles.contains(role)) {
-      throw ForbiddenException('Permissão insuficiente');
-    }
-
-    await next();
-  };
-}
+├── middleware.dart:
+export 'auth_middleware.dart';
+export 'cors_middleware.dart';
+export 'error_middleware.dart';
+export 'logger_context_middleware.dart';
+export 'logging_middleware.dart';
+export 'org_context_middleware.dart';
+export 'require_any_role.dart';
+export 'require_auth.dart';
 
 
-└── jwt_middleware.dart:
-import '../core.dart';
-
-import 'package:sympllizy_back/core/core.dart';
-
-Middleware jwtMiddleware(JwtService jwt) {
-  return (HttpContext ctx, Future<void> Function() next) async {
-    final authHeader = ctx.request.headers.value(HttpHeaders.authorizationHeader);
-
-    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
-      throw UnauthorizedException('Token não informado');
-    }
-
-    final token = authHeader.substring(7).trim();
-
-    try {
-      final jwtDecoded = jwt.verifyAccessToken(token);
-
-      final userId = jwt.getUserId(jwtDecoded);
-      final orgId = jwt.getOrgId(jwtDecoded);
-      final roles = jwt.getRoles(jwtDecoded);
-
-      if (userId.isEmpty || orgId.isEmpty) {
-        throw UnauthorizedException('Token inválido');
-      }
-
-      ctx.setAuth(
-        AuthContext(
-          userId: userId,
-          orgId: orgId,
-          roles: roles,
-        ),
-      );
-
-      await next();
-    } on JWTException catch (e) {
-      throw UnauthorizedException(e.message);
-    }
-  };
-}
-
-
-
-└── org_context_middleware.dart:
+├── org_context_middleware.dart:
 import '../http/context.dart';
 
 Future<void> orgContextMiddleware(HttpContext ctx, Future<void> Function() next) async {
@@ -1086,30 +1227,111 @@ Future<void> orgContextMiddleware(HttpContext ctx, Future<void> Function() next)
 }
 
 
+├── require_any_role.dart:
+
+import '../core.dart';
+
+Middleware requireAnyRole(List<String> roles) {
+  return (ctx, next) async {
+    if (!ctx.isAuthenticated) {
+      throw UnauthorizedException('Autenticação necessária');
+    }
+
+    final allowed = ctx.auth?.roles.any(roles.contains) ?? false;
+
+    if (!allowed) {
+      throw ForbiddenException('Permissão insuficiente');
+    }
+
+    await next();
+  };
+}
+
+└── require_auth.dart:
+import '../core.dart';
+
+Middleware requireAuth() {
+  return (ctx, next) async {
+    if (!ctx.isAuthenticated) {
+      throw UnauthorizedException('Autenticação necessária');
+    }
+    await next();
+  };
+}
+
+
 ├── openapi
-├── openapi.dart:
+├── openapi_bootstrap.dart:
+import 'openapi.dart';
+
+void bootstrapOpenApi() {
+  // -------- SERVERS --------
+  OpenApi.addServer(url: 'http://localhost:8080', description: 'Ambiente local');
+
+  // -------- TAGS --------
+  OpenApi.addTag(name: 'Auth', description: 'Autenticação e sessão');
+  OpenApi.addTag(name: 'Users', description: 'Usuário autenticado');
+  OpenApi.addTag(name: 'Admin', description: 'Administração');
+  OpenApi.addTag(name: 'System', description: 'Sistema');
+
+  // -------- SECURITY --------
+  OpenApi.addSecurityScheme('BearerAuth', {'type': 'http', 'scheme': 'bearer', 'bearerFormat': 'JWT'});
+
+  OpenApi.setGlobalSecurity([
+    {'BearerAuth': []},
+  ]);
+
+  // -------- SCHEMAS BASE --------
+  OpenApi.addSchema('ApiResponse', {
+    'type': 'object',
+    'required': ['success', 'message'],
+    'properties': {
+      'success': {'type': 'boolean'},
+      'message': {'type': 'string'},
+      'data': {'nullable': true},
+    },
+  });
+
+  OpenApi.addSchema('ErrorResponse', {
+    'type': 'object',
+    'required': ['success', 'message', 'code'],
+    'properties': {
+      'success': {'type': 'boolean', 'example': false},
+      'message': {'type': 'string', 'example': 'Token inválido ou expirado'},
+      'code': {'type': 'string', 'example': 'UNAUTHORIZED'},
+      'data': {
+        'nullable': true,
+        'description': 'Detalhes adicionais do erro (opcional)',
+        'example': {'field': 'email'},
+      },
+    },
+  });
+}
+
+
+└── openapi.dart:
+
 import 'dart:convert';
 
 class OpenApiOperation {
   final String summary;
   final String? description;
+  final List<String>? tags;
   final OpenApiRequestBody? requestBody;
   final Map<String, dynamic> responses;
+  final List<Map<String, List<String>>>? security;
 
-  OpenApiOperation({required this.summary, this.description, this.requestBody, required this.responses});
+  OpenApiOperation({required this.summary, this.description, this.tags, this.requestBody, required this.responses, this.security});
 
   Map<String, dynamic> toJson() {
-    final map = {'summary': summary, 'responses': responses};
-
-    if (description != null) {
-      map['description'] = description!;
-    }
-
-    if (requestBody != null) {
-      map['requestBody'] = requestBody!.toJson();
-    }
-
-    return map;
+    return {
+      'summary': summary,
+      if (description != null) 'description': description,
+      if (tags != null) 'tags': tags,
+      if (requestBody != null) 'requestBody': requestBody!.toJson(),
+      'responses': responses,
+      if (security != null) 'security': security,
+    };
   }
 }
 
@@ -1119,56 +1341,68 @@ class OpenApiRequestBody {
 
   OpenApiRequestBody({this.required = false, required this.content});
 
-  Map<String, dynamic> toJson() {
-    return {'required': required, 'content': content};
-  }
+  Map<String, dynamic> toJson() => {'required': required, 'content': content};
 }
 
 class OpenApi {
   static final Map<String, dynamic> _paths = {};
+  static final Map<String, dynamic> _schemas = {};
+  static final Map<String, dynamic> _securitySchemes = {};
+  static final List<Map<String, dynamic>> _tags = [];
+  static final List<Map<String, dynamic>> _servers = [];
+  static List<Map<String, List<String>>> _globalSecurity = [];
 
-  /// Registra uma operação OpenAPI para um método + caminho
-  static void addOperation({required String method, required String path, required OpenApiOperation operation}) {
-    final normalizedPath = path.startsWith('/') ? path : '/$path';
-    final upperMethod = method.toLowerCase();
-
-    // Se não existir ainda, cria o path
-    if (!_paths.containsKey(normalizedPath)) {
-      _paths[normalizedPath] = {};
-    }
-
-    // Adiciona a operação específica (get/post/put...)
-    _paths[normalizedPath][upperMethod] = operation.toJson();
+  // ---------------- SERVERS ----------------
+  static void addServer({required String url, String? description}) {
+    _servers.add({'url': url, if (description != null) 'description': description});
   }
 
-  /// Retorna o JSON completo para o Swagger
-  static String json() {
-    final doc = {
-      'openapi': '3.0.0',
-      'info': {'title': 'Sympllizy API', 'version': '1.0.0'},
-      'paths': _paths,
-    };
+  // ---------------- TAGS ----------------
+  static void addTag({required String name, String? description}) {
+    _tags.add({'name': name, if (description != null) 'description': description});
+  }
 
-    return jsonEncode(doc);
+  // ---------------- SCHEMAS ----------------
+  static void addSchema(String name, Map<String, dynamic> schema) {
+    _schemas[name] = schema;
+  }
+
+  // ---------------- SECURITY ----------------
+  static void addSecurityScheme(String name, Map<String, dynamic> scheme) {
+    _securitySchemes[name] = scheme;
+  }
+
+  static void setGlobalSecurity(List<Map<String, List<String>>> security) {
+    _globalSecurity = security;
+  }
+
+  // ---------------- PATHS ----------------
+  static void addOperation({required String method, required String path, required OpenApiOperation operation}) {
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    final lowerMethod = method.toLowerCase();
+
+    _paths.putIfAbsent(normalizedPath, () => {});
+    _paths[normalizedPath][lowerMethod] = operation.toJson();
+  }
+
+  // ---------------- JSON FINAL ----------------
+  static String json() {
+    return jsonEncode({
+      'openapi': '3.0.0',
+      'info': {'title': 'Sympllizy API', 'version': '1.0.0', 'description': 'API oficial da plataforma Sympllizy'},
+      if (_servers.isNotEmpty) 'servers': _servers,
+      if (_tags.isNotEmpty) 'tags': _tags,
+      'paths': _paths,
+      'components': {if (_schemas.isNotEmpty) 'schemas': _schemas, if (_securitySchemes.isNotEmpty) 'securitySchemes': _securitySchemes},
+      if (_globalSecurity.isNotEmpty) 'security': _globalSecurity,
+    });
   }
 }
 
-
-└── openapi.yaml:
-openapi: 3.1.0
-info:
-  title: Sympllizy API
-  version: "1.0.0"
-
-paths:
-  /ping:
-    get:
-      summary: Check API health
-      responses:
-        '200':
-          description: OK
-
 ├── routes
+├── routes.dart:
+
+export 'test_route.dart';
 
 └── test_route.dart:
 import 'dart:io';
@@ -1188,9 +1422,38 @@ void registerTestRoutes(Router router) {
 
 
 ├── security
+├── auth_payload.dart:
+class AuthPayload {
+  final String userId;
+  final String orgId;
+  final List<String> roles;
+
+  AuthPayload({required this.userId, required this.orgId, required this.roles});
+}
+
+
+├── jwt_middleware.dart:
+
+import 'package:sympllizy_back/core/core.dart';
+
+Middleware jwtMiddleware(JwtService jwt) {
+  return (ctx, next) async {
+    final authHeader = ctx.header('authorization');
+    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
+      return await next(); // deixa passar, requireAuth decide
+    }
+
+    final token = authHeader.substring(7);
+
+    final decoded = jwt.verifyAccessToken(token);
+
+    ctx.setAuth(AuthContext(userId: jwt.getUserId(decoded), orgId: jwt.getOrgId(decoded), roles: jwt.getRoles(decoded)));
+
+    await next();
+  };
+}
+
 ├── jwt_service.dart:
-// lib/core/security/jwt_service.dart
-// lib/core/security/jwt_service.dart
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:sympllizy_back/core/security/token_pair.dart';
 
@@ -1276,9 +1539,13 @@ class JwtService {
     }
   }
 
-  String getUserId(JWT jwt) => jwt.subject ?? '';
+  String getUserId(JWT jwt) {
+    return jwt.payload['sub'] as String? ?? '';
+  }
 
-  String getOrgId(JWT jwt) => jwt.payload['org'] as String? ?? '';
+  String getOrgId(JWT jwt) {
+    return jwt.payload['org'] as String? ?? '';
+  }
 
   List<String> getRoles(JWT jwt) {
     final roles = jwt.payload['roles'];
@@ -1311,10 +1578,29 @@ class PasswordHasher {
 }
 
 
+├── require_role.dart:
+import 'package:sympllizy_back/core/core.dart';
+
+Middleware requireRole(String role) {
+  return (ctx, next) async {
+    if (!ctx.isAuthenticated || !ctx.auth.roles.contains(role)) {
+      throw ForbiddenException('Permissão insuficiente');
+    }
+    await next();
+  };
+}
+
+
 ├── security.dart:
+export 'auth_payload.dart';
+export 'jwt_middleware.dart';
+export 'jwt_service.dart';
+export 'password_hash.dart';
+export 'require_role.dart';
+export 'token_pair.dart';
+
 
 └── token_pair.dart:
-
 class TokenPair {
   final String accessToken;
   final String refreshToken;
@@ -1324,7 +1610,8 @@ class TokenPair {
   const TokenPair({required this.accessToken, required this.refreshToken, required this.accessExpiresAt, required this.refreshExpiresAt});
 }
 
-└── swagger
+
+├── swagger
 ├── openapi_spec.dart:
 import '../openapi/openapi.dart';
 
@@ -1332,99 +1619,30 @@ class OpenApiSpec {
   static String get spec => OpenApi.json();
 }
 
-└── swagger_handler.dart:
+
+├── swagger_handler.dart:
 import 'package:shelf/shelf.dart';
 import 'package:shelf_swagger_ui/shelf_swagger_ui.dart';
 
-import 'openapi_spec.dart';
+import '../openapi/openapi.dart';
 
 class SwaggerHandler {
-  static Handler get handler => SwaggerUI(OpenApiSpec.spec, title: 'Sympllizy API Docs', specType: SpecType.json, docExpansion: DocExpansion.list, deepLink: true, persistAuthorization: true).call;
-}
-└── server
-└── server.dart:
-import 'dart:io';
-
-import 'package:sympllizy_back/core/core.dart';
-import 'package:sympllizy_back/core/swagger/swagger_handler.dart';
-import 'package:sympllizy_back/modules/auth/auth_dependecy.dart';
-
-Future<void> startServer({int port = 8080}) async {
-  final router = Router();
-
-  // ============ CONFIGURAÇÃO BÁSICA ============
-  router.setErrorHandler(errorMiddleware);
-
-  router.use(loggingMiddleware);
-  router.use(corsMiddleware);
-  router.use(orgContextMiddleware);
-
-  // ============ OPENAPI (REGISTRO GLOBAL) ============
-  OpenApi.addOperation(
-    method: 'get',
-    path: '/health',
-    operation: OpenApiOperation(
-      summary: 'Health check da API',
-      responses: {
-        '200': {'description': 'API está rodando'},
-      },
-    ),
-  );
-
-  // ============ DEPENDÊNCIAS ============
-  final db = DB.instance;
-  final jwtService = JwtService.createFromEnv();
-  const hasher = PasswordHasher();
-
-  final authRoutes = authDependency(db: db, jwtService: jwtService, hasher: hasher);
-
-  // ============ REGISTRO DE ROTAS (INCLUI /auth/...) -----------
-  authRoutes.register(router);
-
-  // ============ ROTAS DE DOC -----------
-  router.get('/openapi.json', (ctx) async {
-    final json = OpenApi.json();
-
-    ctx.response
-      ..statusCode = HttpStatus.ok
-      ..headers.contentType = ContentType.json
-      ..write(json);
-
-    await ctx.response.close();
-  });
-
-  router.get('/docs', (ctx) async {
-    final shelfReq = await httpToShelfRequest(ctx.request);
-    final shelfRes = await SwaggerHandler.handler(shelfReq);
-    await sendShelfResponse(ctx.response, shelfRes);
-  });
-
-  router.get('/docs/:rest', (ctx) async {
-    final shelfReq = await httpToShelfRequest(ctx.request);
-    final shelfRes = await SwaggerHandler.handler(shelfReq);
-    await sendShelfResponse(ctx.response, shelfRes);
-  });
-
-  // ============ HEALTH ============
-  router.get('/health', (ctx) async {
-    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'ok', data: {'uptime': DateTime.now().toIso8601String()}));
-    return;
-  });
-
-  // ============ INICIAR SERVIDOR ============
-  final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-  print('🚀 HTTP server ouvindo em http://localhost:$port');
-
-  await for (final req in server) {
-    router.handle(req);
-  }
+  static Handler get handler => SwaggerUI(OpenApi.json(), title: 'Sympllizy API Docs', specType: SpecType.json, persistAuthorization: true).call;
 }
 
 
-Modulo ==>
+└── swagger.dart:
+
+export 'openapi_spec.dart';
+export 'swagger_handler.dart';
+
+└── utils
+    └── utils.dart:
+
+
 ├── modules
-│   │   ├── auth
-│   │   │   ├── auth_controller.dart:
+├── auth
+├── auth_controller.dart:
 import 'dart:developer';
 import 'dart:io';
 
@@ -1494,71 +1712,33 @@ class AuthController {
 
     sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Token renovado com sucesso', data: result));
   }
-}
 
-lib/core/utils/is_authenticated.dart:
-import 'package:sympllizy_back/core/core.dart';
+  // ---------------- LOGOUT ----------------
+  Future<void> logout(HttpContext ctx) async {
+    final body = await ctx.bodyAsJson();
+    final refreshToken = body['refresh_token'] as String?;
 
-extension AuthContextExt on HttpContext {
-  bool get isAuthenticated => items.containsKey('_auth');
-}
-
-lib/core/security/jwt_middleware.dart:
-import 'dart:io';
-
-import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
-import 'package:sympllizy_back/core/core.dart';
-import 'package:sympllizy_back/core/http/http_context_auth.dart';
-
-Middleware jwtMiddleware(JwtService jwt) {
-  return (HttpContext ctx, Future<void> Function() next) async {
-    final authHeader = ctx.request.headers.value(HttpHeaders.authorizationHeader);
-
-    if (authHeader == null || !authHeader.startsWith('Bearer ')) {
-      throw UnauthorizedException('Token não informado');
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw ValidationException('Refresh token obrigatório', details: {'refresh_token': 'required'});
     }
 
-    final token = authHeader.substring(7).trim();
+    await _service.logout(refreshToken);
 
-    try {
-      final jwtDecoded = jwt.verifyAccessToken(token);
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Logout realizado com sucesso'));
+  }
 
-      final userId = jwt.getUserId(jwtDecoded);
-      final orgId = jwt.getOrgId(jwtDecoded);
-      final roles = jwt.getRoles(jwtDecoded);
+  // ---------------- LOGOUT GLOBAL ----------------
+  Future<void> logoutAll(HttpContext ctx) async {
+    final auth = ctx.auth;
 
-      if (userId.isEmpty || orgId.isEmpty) {
-        throw UnauthorizedException('Token inválido');
-      }
+    await _service.logoutAll(userId: auth.userId);
 
-      ctx.setAuth(AuthContext(userId: userId, orgId: orgId, roles: roles));
-
-      await next();
-    } on JWTException catch (e) {
-      throw UnauthorizedException(e.message);
-    }
-  };
+    sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'Logout global realizado com sucesso'));
+  }
 }
 
 
-lib/core/middleware/require_auth.dart:
-
-import 'package:sympllizy_back/core/http/http_context_auth.dart'; // 👈 ESSENCIAL
-
-import '../errors/erros.dart';
-import '../http/router.dart';
-
-Middleware requireAuth() {
-  return (ctx, next) async {
-    if (!ctx.isAuthenticated) {
-      throw UnauthorizedException('Autenticação necessária');
-    }
-    await next();
-  };
-}
-
-
-│   │   │   ├── auth_dependecy.dart:
+├── auth_dependecy.dart:
 import 'package:sympllizy_back/modules/auth/auth_controller.dart';
 import 'package:sympllizy_back/modules/auth/auth_repository.dart';
 import 'package:sympllizy_back/modules/auth/auth_routes.dart';
@@ -1566,15 +1746,15 @@ import 'package:sympllizy_back/modules/auth/auth_service.dart';
 
 import '../../core/core.dart';
 
-AuthRoutes authDependency({required DatabaseConnection db, required JwtService jwtService, required PasswordHasher hasher}) {
+AuthRoutes authDependency({required DatabaseConnection db, required JwtService jwtService, required PasswordHasher hasher, required Logger logger}) {
   final authRepository = AuthRepositoryImpl(db);
-  final authService = AuthServiceImpl(authRepository, db, jwtService, hasher);
+  final authService = AuthServiceImpl(authRepository, db, jwtService, hasher, logger);
   final authController = AuthController(authService);
-
-  return AuthRoutes(authController);
+  return AuthRoutes(authController, jwtService);
 }
 
-│   │   │   ├── auth_entity.dart:
+
+├── auth_entity.dart:
 import 'package:sympllizy_back/core/core.dart';
 
 class AuthEntity {
@@ -1652,7 +1832,8 @@ class OrgEntity {
   }
 }
 
-│   │   │   ├── auth_param.dart:
+
+├── auth_param.dart:
 class AuthParam {
   final String email;
   final String password;
@@ -1665,9 +1846,8 @@ class AuthParam {
   }
 }
 
-│   │   │   ├── auth_repository.dart:
-import 'package:sympllizy_back/core/core.dart';
 
+├── auth_repository.dart:
 import 'package:sympllizy_back/core/core.dart';
 
 abstract class AuthRepository {
@@ -1691,6 +1871,8 @@ abstract class AuthRepository {
   Future<void> revokeRefreshToken(DatabaseConnection tx, String token);
 
   Future<void> saveRefreshToken(DatabaseConnection tx, {required String userId, required String token, required DateTime expiresAt});
+
+  Future<void> revokeAllRefreshTokens(DatabaseConnection tx, String userId);
 }
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -1763,6 +1945,16 @@ UPDATE auth.refresh_tokens
 SET revoked_at = NOW()
 WHERE token = \$1
 ''';
+  static const String revokeAllRefreshTokensSql = '''
+UPDATE auth.refresh_tokens
+SET revoked_at = NOW()
+WHERE user_id = \$1
+  AND revoked_at IS NULL
+''';
+  @override
+  Future<void> revokeAllRefreshTokens(DatabaseConnection tx, String userId) async {
+    await tx.execute(revokeAllRefreshTokensSql, [userId]);
+  }
 
   @override
   Future<Map<String, dynamic>?> findUserByEmail(String email) async {
@@ -1833,59 +2025,202 @@ WHERE token = \$1
 }
 
 
+├── auth_routes.dart:
 
-│   │   │   ├── auth_routes.dart:
 import 'package:sympllizy_back/core/core.dart';
 
 import 'auth_controller.dart';
 
 class AuthRoutes {
   final AuthController controller;
+  final JwtService jwtService;
 
-  AuthRoutes(this.controller);
+  AuthRoutes(this.controller, this.jwtService);
+
+  static const String _base = '/v1/auth';
 
   void register(Router router) {
     // =======================
-    // ROTAS
+    // ROTAS (VERSIONADAS)
     // =======================
-    router.group('/auth', (r) {
+    router.group(_base, (r) {
       r.post('/signup', controller.signup);
       r.post('/login', controller.login);
       r.post('/refresh', controller.refresh);
+
+      r.post('/logout', chain([jwtMiddleware(jwtService), requireAuth()], controller.logout));
+
+      r.post('/logout-all', chain([jwtMiddleware(jwtService), requireAuth()], controller.logoutAll));
     });
 
     // =======================
     // SWAGGER
     // =======================
+    _registerSchemas();
     _registerSignupSwagger();
     _registerLoginSwagger();
     _registerRefreshSwagger();
+    _registerLogoutSwagger();
+    _registerLogoutAllSwagger();
   }
 
-  // ---------------------------------------------------------------------------
-  // SIGNUP
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // SCHEMAS
+  // ===========================================================================
+  void _registerSchemas() {
+    // ---------- REQUESTS ----------
+    OpenApi.addSchema('SignupRequest', {
+      'type': 'object',
+      'required': ['org_name', 'email', 'password'],
+      'properties': {
+        'org_name': {'type': 'string', 'example': 'Minha Empresa'},
+        'email': {'type': 'string', 'format': 'email', 'example': 'admin@empresa.com'},
+        'password': {'type': 'string', 'format': 'password', 'example': 'senha123'},
+        'full_name': {'type': 'string', 'nullable': true, 'example': 'Gabriel Lima'},
+      },
+    });
+
+    OpenApi.addSchema('LoginRequest', {
+      'type': 'object',
+      'required': ['email', 'password'],
+      'properties': {
+        'email': {'type': 'string', 'format': 'email', 'example': 'admin@empresa.com'},
+        'password': {'type': 'string', 'format': 'password', 'example': '123456'},
+      },
+    });
+
+    OpenApi.addSchema('RefreshRequest', {
+      'type': 'object',
+      'required': ['refresh_token'],
+      'properties': {
+        'refresh_token': {'type': 'string', 'example': 'jwt_refresh_here'},
+      },
+    });
+
+    OpenApi.addSchema('LogoutRequest', {
+      'type': 'object',
+      'required': ['refresh_token'],
+      'properties': {
+        'refresh_token': {'type': 'string', 'example': 'jwt_refresh_here'},
+      },
+    });
+
+    // ---------- ENTITIES ----------
+    OpenApi.addSchema('AuthUser', {
+      'type': 'object',
+      'properties': {
+        'id': {'type': 'string', 'format': 'uuid'},
+        'email': {'type': 'string'},
+        'full_name': {'type': 'string', 'nullable': true},
+        'roles': {
+          'type': 'array',
+          'items': {'type': 'string'},
+        },
+      },
+    });
+
+    OpenApi.addSchema('AuthOrg', {
+      'type': 'object',
+      'properties': {
+        'id': {'type': 'string', 'format': 'uuid'},
+        'name': {'type': 'string'},
+        'slug': {'type': 'string'},
+      },
+    });
+
+    OpenApi.addSchema('AuthCompany', {
+      'type': 'object',
+      'properties': {
+        'id': {'type': 'string', 'format': 'uuid'},
+        'name': {'type': 'string'},
+      },
+    });
+
+    // ---------- TOKENS ----------
+    OpenApi.addSchema('TokenPair', {
+      'type': 'object',
+      'properties': {
+        'access_token': {'type': 'string'},
+        'refresh_token': {'type': 'string'},
+        'access_expires_at': {'type': 'integer'},
+        'refresh_expires_at': {'type': 'integer'},
+      },
+    });
+
+    // ---------- RESPONSE DATA ----------
+    OpenApi.addSchema('SignupResponseData', {
+      'allOf': [
+        {r'$ref': '#/components/schemas/TokenPair'},
+        {
+          'type': 'object',
+          'properties': {
+            'user': {r'$ref': '#/components/schemas/AuthUser'},
+            'org': {r'$ref': '#/components/schemas/AuthOrg'},
+            'company': {r'$ref': '#/components/schemas/AuthCompany'},
+          },
+        },
+      ],
+    });
+
+    OpenApi.addSchema('LoginResponseData', {
+      'allOf': [
+        {r'$ref': '#/components/schemas/TokenPair'},
+        {
+          'type': 'object',
+          'properties': {
+            'user': {r'$ref': '#/components/schemas/AuthUser'},
+            'org': {r'$ref': '#/components/schemas/AuthOrg'},
+          },
+        },
+      ],
+    });
+
+    OpenApi.addSchema('RefreshResponseData', {r'$ref': '#/components/schemas/TokenPair'});
+
+    // ---------- API RESPONSES ----------
+    OpenApi.addSchema('ApiResponseSignup', {
+      'type': 'object',
+      'properties': {
+        'success': {'type': 'boolean'},
+        'message': {'type': 'string'},
+        'data': {r'$ref': '#/components/schemas/SignupResponseData'},
+      },
+    });
+
+    OpenApi.addSchema('ApiResponseLogin', {
+      'type': 'object',
+      'properties': {
+        'success': {'type': 'boolean'},
+        'message': {'type': 'string'},
+        'data': {r'$ref': '#/components/schemas/LoginResponseData'},
+      },
+    });
+
+    OpenApi.addSchema('ApiResponseRefresh', {
+      'type': 'object',
+      'properties': {
+        'success': {'type': 'boolean'},
+        'message': {'type': 'string'},
+        'data': {r'$ref': '#/components/schemas/RefreshResponseData'},
+      },
+    });
+  }
+
+  // ===========================================================================
+  // OPERATIONS
+  // ===========================================================================
   void _registerSignupSwagger() {
     OpenApi.addOperation(
       method: 'post',
-      path: '/auth/signup',
+      path: '$_base/signup',
       operation: OpenApiOperation(
-        summary: 'Criação de conta (Org + Usuário)',
-        description: 'Cria uma organização, um usuário proprietário (owner) e a empresa matriz.',
+        tags: const ['Auth'],
+        summary: 'Criação de conta',
         requestBody: OpenApiRequestBody(
           required: true,
           content: {
             'application/json': {
-              'schema': {
-                'type': 'object',
-                'required': ['org_name', 'email', 'password'],
-                'properties': {
-                  'org_name': {'type': 'string', 'example': 'Minha Empresa'},
-                  'email': {'type': 'string', 'format': 'email', 'example': 'admin@empresa.com'},
-                  'password': {'type': 'string', 'format': 'password', 'example': 'senha123'},
-                  'full_name': {'type': 'string', 'example': 'Gabriel Lima'},
-                },
-              },
+              'schema': {r'$ref': '#/components/schemas/SignupRequest'},
             },
           },
         ),
@@ -1894,100 +2229,39 @@ class AuthRoutes {
             'description': 'Conta criada com sucesso',
             'content': {
               'application/json': {
-                'schema': {
-                  'type': 'object',
-                  'example': {
-                    "success": true,
-                    "message": "Conta criada com sucesso",
-                    "data": {
-                      "access_token": "jwt_access_here",
-                      "refresh_token": "jwt_refresh_here",
-                      "access_expires_at": 1765504344,
-                      "refresh_expires_at": 1766107344,
-                      "user": {
-                        "id": "uuid",
-                        "email": "admin@empresa.com",
-                        "full_name": "Gabriel Lima",
-                        "roles": ["owner"],
-                      },
-                      "org": {"id": "uuid", "name": "Minha Empresa", "slug": "minha-empresa"},
-                      "company": {"id": "uuid", "name": "Matriz"},
-                    },
-                  },
-                },
+                'schema': {r'$ref': '#/components/schemas/ApiResponseSignup'},
               },
             },
           },
-          '400': {'description': 'Erro de validação'},
-          '500': {'description': 'Erro interno do servidor'},
         },
       ),
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // LOGIN
-  // ---------------------------------------------------------------------------
   void _registerLoginSwagger() {
     OpenApi.addOperation(
       method: 'post',
-      path: '/auth/login',
+      path: '$_base/login',
       operation: OpenApiOperation(
+        tags: const ['Auth'],
         summary: 'Login',
-        description: 'Autentica o usuário usando e-mail e senha e retorna os tokens JWT.',
         requestBody: OpenApiRequestBody(
           required: true,
           content: {
             'application/json': {
-              'schema': {
-                'type': 'object',
-                'required': ['email', 'password'],
-                'properties': {
-                  'email': {'type': 'string', 'format': 'email', 'example': 'admin@empresa.com'},
-                  'password': {'type': 'string', 'format': 'password', 'example': '123456'},
-                },
-              },
+              'schema': {r'$ref': '#/components/schemas/LoginRequest'},
             },
           },
         ),
         responses: {
           '200': {
-            'description': 'Login realizado com sucesso',
+            'description': 'Login realizado',
             'content': {
               'application/json': {
-                'schema': {
-                  'type': 'object',
-                  'example': {
-                    "success": true,
-                    "message": "Login realizado com sucesso",
-                    "data": {
-                      "access_token": "jwt_access_here",
-                      "refresh_token": "jwt_refresh_here",
-                      "access_expires_at": 1765504344,
-                      "refresh_expires_at": 1766107344,
-                      "user": {
-                        "id": "uuid",
-                        "email": "admin@empresa.com",
-                        "full_name": "Gabriel Lima",
-                        "roles": ["owner"],
-                      },
-                      "org": {"id": "uuid", "name": "Minha Empresa", "slug": "minha-empresa"},
-                    },
-                  },
-                },
+                'schema': {r'$ref': '#/components/schemas/ApiResponseLogin'},
               },
             },
           },
-          '401': {
-            'description': 'Credenciais inválidas',
-            'content': {
-              'application/json': {
-                'example': {"success": false, "message": "E-mail ou senha inválidos", "data": null},
-              },
-            },
-          },
-          '400': {'description': 'Erro de validação'},
-          '500': {'description': 'Erro interno do servidor'},
         },
       ),
     );
@@ -1996,36 +2270,76 @@ class AuthRoutes {
   void _registerRefreshSwagger() {
     OpenApi.addOperation(
       method: 'post',
-      path: '/auth/refresh',
+      path: '$_base/refresh',
       operation: OpenApiOperation(
-        summary: 'Renovar token de acesso',
-        description: 'Gera um novo access_token e refresh_token a partir de um refresh token válido.',
+        tags: const ['Auth'],
+        summary: 'Refresh token',
         requestBody: OpenApiRequestBody(
           required: true,
           content: {
             'application/json': {
-              'schema': {
-                'type': 'object',
-                'required': ['refresh_token'],
-                'properties': {
-                  'refresh_token': {'type': 'string', 'example': 'jwt_refresh_here'},
-                },
-              },
+              'schema': {r'$ref': '#/components/schemas/RefreshRequest'},
             },
           },
         ),
         responses: {
-          '200': {'description': 'Token renovado com sucesso'},
-          '401': {'description': 'Refresh token inválido ou expirado'},
-          '500': {'description': 'Erro interno do servidor'},
+          '200': {
+            'description': 'Token renovado',
+            'content': {
+              'application/json': {
+                'schema': {r'$ref': '#/components/schemas/ApiResponseRefresh'},
+              },
+            },
+          },
+        },
+      ),
+    );
+  }
+
+  void _registerLogoutSwagger() {
+    OpenApi.addOperation(
+      method: 'post',
+      path: '$_base/logout',
+      operation: OpenApiOperation(
+        tags: const ['Auth'],
+        summary: 'Logout',
+        security: const [
+          {'BearerAuth': []},
+        ],
+        requestBody: OpenApiRequestBody(
+          required: true,
+          content: {
+            'application/json': {
+              'schema': {r'$ref': '#/components/schemas/LogoutRequest'},
+            },
+          },
+        ),
+        responses: {
+          '200': {'description': 'Logout realizado'},
+        },
+      ),
+    );
+  }
+
+  void _registerLogoutAllSwagger() {
+    OpenApi.addOperation(
+      method: 'post',
+      path: '$_base/logout-all',
+      operation: OpenApiOperation(
+        tags: const ['Auth'],
+        summary: 'Logout global',
+        security: const [
+          {'BearerAuth': []},
+        ],
+        responses: {
+          '200': {'description': 'Logout global realizado'},
         },
       ),
     );
   }
 }
 
-
-│   │   │   ├── auth_service.dart:
+├── auth_service.dart:
 import 'package:sympllizy_back/core/core.dart';
 
 import 'auth_entity.dart';
@@ -2033,6 +2347,10 @@ import 'auth_repository.dart';
 
 abstract class AuthService {
   Future<AuthEntity> signup({required String orgName, required String email, required String password, String? fullName});
+  Future<Map<String, dynamic>> login({required String email, required String password});
+  Future<Map<String, dynamic>> refresh(String refreshToken);
+  Future<void> logout(String refreshToken);
+  Future<void> logoutAll({required String userId});
 }
 
 class AuthServiceImpl implements AuthService {
@@ -2040,8 +2358,9 @@ class AuthServiceImpl implements AuthService {
   final AuthRepository _repo;
   final JwtService _jwt;
   final PasswordHasher _hasher;
+  final Logger _logger;
 
-  AuthServiceImpl(this._repo, this._db, this._jwt, this._hasher);
+  AuthServiceImpl(this._repo, this._db, this._jwt, this._hasher, this._logger);
 
   String _slugify(String value) {
     final lower = value.trim().toLowerCase();
@@ -2101,10 +2420,118 @@ class AuthServiceImpl implements AuthService {
       );
     });
   }
+
+  @override
+  Future<Map<String, dynamic>> login({required String email, required String password}) async {
+    final user = await _repo.findUserByEmail(email);
+    if (user == null) {
+      throw UnauthorizedException('Credenciais inválidas');
+    }
+
+    final isValid = _hasher.verify(password, user['password_hash']);
+    if (!isValid) {
+      throw UnauthorizedException('Credenciais inválidas');
+    }
+
+    final userId = user['id'].toString();
+    final org = await _repo.findPrimaryOrgByUser(userId);
+    final orgId = org['id'].toString();
+    final roles = await _repo.findUserRoles(userId, orgId);
+
+    final tokens = _jwt.generateTokens(userId: userId, orgId: orgId, roles: roles);
+
+    await _db.transaction((tx) async {
+      await _repo.saveRefreshToken(tx, userId: userId, token: tokens.refreshToken, expiresAt: DateTime.fromMillisecondsSinceEpoch(tokens.refreshExpiresAt * 1000, isUtc: true));
+    });
+
+    return {
+      'access_token': tokens.accessToken,
+      'refresh_token': tokens.refreshToken,
+      'access_expires_at': tokens.accessExpiresAt,
+      'refresh_expires_at': tokens.refreshExpiresAt,
+      'user': {'id': userId, 'email': email, 'roles': roles},
+      'org': {'id': orgId, 'name': org['name'], 'slug': org['slug']},
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> refresh(String refreshToken) async {
+    // 1️⃣ Verifica JWT
+    final jwt = _jwt.verifyRefreshToken(refreshToken);
+
+    final userId = _jwt.getUserId(jwt);
+    final orgId = _jwt.getOrgId(jwt);
+
+    if (userId.isEmpty || orgId.isEmpty) {
+      throw UnauthorizedException('Token inválido');
+    }
+
+    // 2️⃣ Transação REAL
+    return await _db.transaction((tx) async {
+      final exists = await _repo.findRefreshToken(tx, userId: userId, token: refreshToken);
+
+      if (!exists) {
+        throw UnauthorizedException('Refresh token inválido ou revogado');
+      }
+
+      // 3️⃣ Gera novos tokens
+      final tokens = _jwt.generateTokens(userId: userId, orgId: orgId, roles: const []);
+
+      // 4️⃣ Revoga o antigo
+      await _repo.revokeRefreshToken(tx, refreshToken);
+
+      // 5️⃣ Salva o novo
+      await _repo.saveRefreshToken(tx, userId: userId, token: tokens.refreshToken, expiresAt: DateTime.fromMillisecondsSinceEpoch(tokens.refreshExpiresAt * 1000, isUtc: true));
+
+      return {'access_token': tokens.accessToken, 'refresh_token': tokens.refreshToken, 'access_expires_at': tokens.accessExpiresAt, 'refresh_expires_at': tokens.refreshExpiresAt};
+    });
+  }
+
+  @override
+  Future<void> logout(String refreshToken) async {
+    // 1️⃣ Verifica JWT
+    final jwt = _jwt.verifyRefreshToken(refreshToken);
+
+    final userId = _jwt.getUserId(jwt);
+    if (userId.isEmpty) {
+      throw UnauthorizedException('Token inválido');
+    }
+
+    // 2️⃣ Revoga dentro de transação
+    await _db.transaction((tx) async {
+      final exists = await _repo.findRefreshToken(tx, userId: userId, token: refreshToken);
+
+      if (!exists) {
+        throw UnauthorizedException('Refresh token inválido ou já revogado');
+      }
+
+      await _repo.revokeRefreshToken(tx, refreshToken);
+    });
+  }
+
+  @override
+  Future<void> logoutAll({required String userId}) async {
+    await _db.transaction((tx) async {
+      _logger.info('auth.logout.global', 'Logout global realizado', context: {'user_id': userId});
+
+      await _repo.revokeAllRefreshTokens(tx, userId);
+    });
+  }
 }
 
 
-│   │   │   └── signup_request.dart:
+├── auth.dart:
+export 'auth_controller.dart';
+export 'auth_dependecy.dart';
+export 'auth_entity.dart';
+export 'auth_param.dart';
+export 'auth_repository.dart';
+export 'auth_routes.dart';
+export 'auth_service.dart';
+export 'signup_request.dart';
+
+
+└── signup_request.dart:
 class SignupRequest {
   final String orgName;
   final String email;
@@ -2116,4 +2543,80 @@ class SignupRequest {
   factory SignupRequest.fromJson(Map<String, dynamic> json) {
     return SignupRequest(orgName: json['org_name'], email: json['email'], password: json['password'], fullName: json['full_name']);
   }
+}
+
+
+├── module_dependecy.dart:
+
+
+└── modules.dart:
+
+
+└── server
+    └── server.dart:
+
+import 'dart:io';
+
+import 'package:sympllizy_back/core/core.dart';
+import 'package:sympllizy_back/modules/module_dependecy.dart';
+
+Future<void> startServer({int port = 8080}) async {
+  final router = Router();
+
+  // ================= ERROR HANDLER =================
+  router.setErrorHandler(errorMiddleware);
+
+  // ================= DEPENDÊNCIAS =================
+  final db = DB.instance;
+  final logger = DbLogger(db);
+  final jwtService = JwtService.createFromEnv();
+  const hasher = PasswordHasher();
+
+  // ================= MIDDLEWARES GLOBAIS =================
+  router.use(loggerContextMiddleware(logger));
+  router.use(requestLogger(logger));
+  router.use(loggingMiddleware);
+  router.use(corsMiddleware);
+  router.use(orgContextMiddleware);
+
+  // ================= MODULES =================
+  registerModules(router: router, db: db, jwtService: jwtService, hasher: hasher, logger: logger);
+
+  // ================= DOCS =================
+  router.get('/openapi.json', openApiHandler);
+  router.get('/docs', swaggerHandler);
+  router.get('/docs/:rest', swaggerHandler);
+
+  // ================= HEALTH =================
+  router.get('/health', healthHandler);
+
+  // ================= START =================
+  final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+  print('🚀 HTTP server ouvindo em http://localhost:$port');
+
+  await for (final req in server) {
+    router.handle(req);
+  }
+}
+
+/// ================= OPENAPI JSON =================
+Future<void> openApiHandler(HttpContext ctx) async {
+  ctx.response
+    ..statusCode = HttpStatus.ok
+    ..headers.contentType = ContentType.json
+    ..write(OpenApi.json());
+
+  await ctx.response.close();
+}
+
+/// ================= SWAGGER UI =================
+Future<void> swaggerHandler(HttpContext ctx) async {
+  final shelfReq = await httpToShelfRequest(ctx.request);
+  final shelfRes = await SwaggerHandler.handler(shelfReq);
+  await sendShelfResponse(ctx.response, shelfRes);
+}
+
+/// ================= HEALTH =================
+Future<void> healthHandler(HttpContext ctx) async {
+  sendJson(ctx, HttpStatus.ok, ApiResponse.success(message: 'ok', data: {'uptime': DateTime.now().toIso8601String()}));
 }

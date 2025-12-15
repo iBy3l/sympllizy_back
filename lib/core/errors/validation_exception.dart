@@ -1,5 +1,6 @@
-import 'base_exception.dart';
+import 'app_exception.dart';
+import 'error_code.dart';
 
-class ValidationException extends BaseException {
-  ValidationException(super.message, {super.details, String? code}) : super(code: code ?? 'validation_error', statusCode: 400);
+class ValidationException extends AppException {
+  ValidationException(String message, {Map<String, dynamic>? details}) : super(ErrorCode.validationError, message, details: details);
 }

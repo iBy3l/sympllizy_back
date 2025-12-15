@@ -1,5 +1,6 @@
-import 'base_exception.dart';
+import 'app_exception.dart';
+import 'error_code.dart';
 
-class ForbiddenException extends BaseException {
-  ForbiddenException(super.message, {String? code, super.details}) : super(code: code ?? 'forbidden', statusCode: 403);
+class ForbiddenException extends AppException {
+  ForbiddenException(String message) : super(ErrorCode.forbidden, message);
 }

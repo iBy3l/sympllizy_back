@@ -1294,20 +1294,6 @@ class OpenApi {
   }
 }
 
-└── openapi.yaml:
-openapi: 3.1.0
-info:
-  title: Sympllizy API
-  version: "1.0.0"
-
-paths:
-  /ping:
-    get:
-      summary: Check API health
-      responses:
-        '200':
-          description: OK
-
 ├── routes
 ├── routes.dart:
 export 'test_route.dart';
