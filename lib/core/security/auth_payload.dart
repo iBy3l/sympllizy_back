@@ -1,4 +1,3 @@
-// lib/core/security/auth_payload.dart
 class AuthPayload {
   final String userId;
   final String orgId;

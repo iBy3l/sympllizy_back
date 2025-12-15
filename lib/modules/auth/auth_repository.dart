@@ -101,7 +101,6 @@ SET revoked_at = NOW()
 WHERE user_id = \$1
   AND revoked_at IS NULL
 ''';
-
   @override
   Future<void> revokeAllRefreshTokens(DatabaseConnection tx, String userId) async {
     await tx.execute(revokeAllRefreshTokensSql, [userId]);

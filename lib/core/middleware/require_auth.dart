@@ -1,5 +1,3 @@
-import 'package:sympllizy_back/core/http/http_context_auth.dart'; // 👈 ESSENCIAL
-
 import '../core.dart';
 
 Middleware requireAuth() {

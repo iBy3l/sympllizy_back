@@ -1,3 +1,5 @@
+import 'package:sympllizy_back/core/errors/unauthorized_exception.dart';
+
 import 'context.dart';
 
 class AuthContext {
@@ -8,17 +10,20 @@ class AuthContext {
   AuthContext({required this.userId, required this.orgId, required this.roles});
 }
 
-extension AuthContextExt on HttpContext {
+extension HttpContextAuth on HttpContext {
   static const _key = '_auth';
 
-  /// Retorna o contexto autenticado ou null
-  AuthContext? get auth => locals[_key] as AuthContext?;
+  AuthContext get auth {
+    final value = items[_key];
+    if (value is! AuthContext) {
+      throw UnauthorizedException('Usuário não autenticado');
+    }
+    return value;
+  }
 
-  /// Apenas verifica se existe auth no contexto
-  bool get isAuthenticated => locals.containsKey(_key);
+  bool get isAuthenticated => items.containsKey(_key);
 
-  /// Usado pelo jwtMiddleware
   void setAuth(AuthContext auth) {
-    locals[_key] = auth;
+    items[_key] = auth;
   }
 }

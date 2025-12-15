@@ -1,4 +1,3 @@
-// lib/core/security/token_pair.dart
 class TokenPair {
   final String accessToken;
   final String refreshToken;
